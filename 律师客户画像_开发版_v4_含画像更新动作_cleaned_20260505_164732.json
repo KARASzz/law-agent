@@ -1,0 +1,71 @@
+{
+  "meta": {
+    "schema_version": "lawyer_profile_memory_v1",
+    "generated_at": "2026-05-05 16:47:32",
+    "input_file": "律师客户画像_开发版_v4_含画像更新动作.xlsx",
+    "input_file_sha256": "a7ca3afe35924f1615a94e374ecdae8a511842cbfd485307f568f6efc709e2c0",
+    "sheet_name": "01_极简采集表",
+    "header_row": 6,
+    "privacy_principle": "仅输出脱敏后的抽象行为逻辑字段；不输出整行原始案件信息。"
+  },
+  "stats": {
+    "total_excel_rows_scanned": 226,
+    "empty_rows_skipped": 225,
+    "records_exported": 1,
+    "records_need_manual_review": 0,
+    "sensitive_flag_counts": {},
+    "missing_core_field_counts": {
+      "conflict_structure": 0,
+      "first_judgment": 0,
+      "strategy_choice": 0,
+      "reusable_rule": 0
+    }
+  },
+  "records": [
+    {
+      "record_id": "f3750b542271b3dd83a7",
+      "source": {
+        "source_file": "律师客户画像_开发版_v4_含画像更新动作.xlsx",
+        "source_file_sha256": "a7ca3afe35924f1615a94e374ecdae8a511842cbfd485307f568f6efc709e2c0",
+        "sheet_name": "01_极简采集表",
+        "excel_row_number": 7
+      },
+      "taxonomy": {
+        "data_source": "历史案件复盘",
+        "matter_type": "民事合同",
+        "stage": "咨询",
+        "representativeness": "高"
+      },
+      "judgment_model": {
+        "conflict_structure": "履行争议",
+        "role_pattern": "强弱明显",
+        "client_goal": "止损",
+        "key_constraints": "证据不足",
+        "first_judgment": "可接",
+        "abstract_reason": "测试2",
+        "strategy_choice": "证据先行",
+        "value_order": "胜率优先",
+        "risk_communication": "直说高风险",
+        "handling_temperature": "冷静理性",
+        "reusable_rule": "写成“遇到X，倾向先Y；若Z，则转W”。"
+      },
+      "review_and_ingestion": {
+        "collection_date": "2026-05-05",
+        "collection_id_or_masked_ref": "100",
+        "result_review": "未知",
+        "note": "测试3",
+        "desensitization_status": "已脱敏",
+        "ingestion_level": "A核心画像",
+        "cleaning_note": "测试4",
+        "review_tag": "判断准确",
+        "profile_update_action": "强化旧规则"
+      },
+      "quality_control": {
+        "missing_core_fields": [],
+        "privacy_decision": "pass",
+        "sensitive_flags": [],
+        "sensitive_flags_by_field": {}
+      }
+    }
+  ]
+}
