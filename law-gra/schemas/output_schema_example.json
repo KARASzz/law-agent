@@ -1,0 +1,52 @@
+{
+  "meta": {
+    "schema_version": "lawyer_profile_memory_v1",
+    "generated_at": "YYYY-MM-DD HH:MM:SS",
+    "input_file": "本周采集表.xlsx",
+    "input_file_sha256": "...",
+    "sheet_name": "01_用户填写表",
+    "header_row": 4,
+    "privacy_principle": "仅输出脱敏后的抽象行为逻辑字段；不输出整行原始案件信息。"
+  },
+  "stats": {
+    "records_exported": 0,
+    "records_need_manual_review": 0,
+    "sensitive_flag_counts": {},
+    "missing_core_field_counts": {}
+  },
+  "records": [
+    {
+      "record_id": "hash_id",
+      "source": {
+        "source_file": "本周采集表.xlsx",
+        "sheet_name": "01_用户填写表",
+        "excel_row_number": 5
+      },
+      "taxonomy": {
+        "matter_type": "民商事/刑事/行政/劳动/知识产权/其他",
+        "stage": "咨询/立案前/庭前/庭审/执行/复盘"
+      },
+      "judgment_model": {
+        "conflict_structure": "抽象冲突结构",
+        "key_constraints": "抽象约束",
+        "first_judgment": "第一判断",
+        "abstract_reason": "抽象理由",
+        "strategy_choice": "策略选择",
+        "value_order": "价值排序",
+        "risk_communication": "风险沟通方式",
+        "handling_temperature": "处理温度",
+        "reusable_rule": "遇到X，倾向Y；但如果Z，则改走W。"
+      },
+      "review_and_ingestion": {
+        "review_tag": "判断准确/策略有效/证据误判/...",
+        "profile_update_action": "强化旧规则/修正旧规则/新增规则/..."
+      },
+      "quality_control": {
+        "missing_core_fields": [],
+        "privacy_decision": "pass/needs_manual_review/low_value_or_incomplete",
+        "sensitive_flags": [],
+        "sensitive_flags_by_field": {}
+      }
+    }
+  ]
+}

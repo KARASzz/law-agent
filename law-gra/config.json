@@ -1,0 +1,18 @@
+{
+  "schema_version": "lawyer_profile_memory_v1",
+  "sheet_candidates": [
+    "01_用户填写表",
+    "01_极简采集表"
+  ],
+  "output": {
+    "pretty_json": true,
+    "also_write_jsonl": false
+  },
+  "model": {
+    "use_model": false,
+    "provider": "TODO: aliyun_or_other",
+    "endpoint": "TODO: fill_your_model_endpoint_here",
+    "api_key_env": "MODEL_API_KEY",
+    "model_name": "TODO: fill_model_name_here"
+  }
+}
