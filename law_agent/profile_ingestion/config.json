@@ -1,5 +1,7 @@
 {
   "schema_version": "lawyer_profile_memory_v1",
+  "candidate_db_path": "../../data/profile_candidates.db",
+  "client_profile_db_path": "../../data/client_profiles.db",
   "sheet_candidates": [
     "01_用户填写表",
     "01_极简采集表"
@@ -7,6 +9,14 @@
   "output": {
     "pretty_json": true,
     "also_write_jsonl": false
+  },
+  "assistant_candidates": {
+    "schema_version": "lawyer_profile_candidate_v1",
+    "sheet_candidates": [
+      "每日协作记录"
+    ],
+    "include_uncertain": false,
+    "default_ingestion_level": "B可用样本"
   },
   "model": {
     "use_model": false,

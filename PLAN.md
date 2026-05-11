@@ -1,8 +1,8 @@
-# 合并 `law-gra` 数据清洗工具到系统
+# 合并画像数据清洗工具到系统
 
 ## Summary
 
-将 `law-gra` 从独立脚本整理为系统内的“画像数据批处理管线”，入口仍保留为 `law-gra/run_clean.bat`，不在 Web 工作台增加任何入口。  
+将原独立前置工具整理为系统内的“画像数据批处理管线”，工作区并入 `law_agent/profile_ingestion`，入口放在项目根目录的 `画像数据入库.bat` / `画像数据入库.command`，不在 Web 工作台增加任何入口。
 正式采集表继续清洗成现有客户画像 JSON 并可导入 `data/client_profiles.db`；助理每日协作表进入“候选画像池”，同时输出 JSON 归档和写入 SQLite，后续通过批处理人工选择后再升格入正式画像库。默认不启用 LLM。
 
 ## Key Changes
@@ -11,8 +11,8 @@
   - `clean_profile_workbook(...)`：承接现有开发版/用户版采集表清洗逻辑。
   - `clean_assistant_workbook_to_candidates(...)`：把“每日协作记录”转为候选画像。
   - `promote_candidates(...)`：批处理选择候选记录，生成正式画像 JSON，并调用现有 `ClientProfileStore.ingest_json_file()` 导入。
-- 保留 `law-gra/clean_to_json.py` 作为兼容入口或薄封装，核心逻辑迁入系统模块，避免两套清洗代码分叉。
-- 扩展 `law-gra/run_clean.bat` 菜单：
+- 保留 `law_agent/profile_ingestion/clean_to_json.py` 作为兼容入口或薄封装，核心逻辑迁入系统模块，避免两套清洗代码分叉。
+- 根目录启动器菜单：
   - 清洗用户版/开发版采集表。
   - 清洗并导入正式画像库。
   - 清洗助理协作表到候选画像池。
@@ -45,9 +45,9 @@
 
 ## Interfaces And Config
 
-- 扩展 `law-gra/config.json`：
-  - `candidate_db_path`: `../data/profile_candidates.db`
-  - `client_profile_db_path`: `../data/client_profiles.db`
+- 扩展 `law_agent/profile_ingestion/config.json`：
+  - `candidate_db_path`: `../../data/profile_candidates.db`
+  - `client_profile_db_path`: `../../data/client_profiles.db`
   - `assistant_candidates.sheet_candidates`: `["每日协作记录"]`
   - `assistant_candidates.include_uncertain`: `false`
   - `assistant_candidates.default_ingestion_level`: `"B可用样本"`
