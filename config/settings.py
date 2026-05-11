@@ -25,10 +25,10 @@ class RAGConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM配置"""
     provider: str = "openai-compatible"  # openai-compatible / openai / custom
-    api_endpoint: str = "https://api.openai.com/v1"
+    api_endpoint: str = "https://api.minimaxi.com/v1"
     api_key: str = ""
-    model: str = "qwen3.6-plus"
-    fallback_models: List[str] = ["glm-5.1"]
+    model: str = "MiniMax-M2.7"
+    fallback_models: List[str] = []
     temperature: float = 0.3
     max_tokens: int = 2000
     timeout: int = 60
@@ -89,10 +89,10 @@ def load_config() -> AppConfig:
     config.rag.api_key = os.getenv("RAG_API_KEY", config.rag.api_key)
     
     config.llm.provider = os.getenv("LLM_PROVIDER", config.llm.provider)
-    config.llm.api_endpoint = os.getenv("LLM_API_ENDPOINT", config.llm.api_endpoint)
-    config.llm.api_key = os.getenv("LLM_API_KEY", config.llm.api_key)
-    config.llm.model = os.getenv("LLM_MODEL", config.llm.model)
-    fallback_models = os.getenv("LLM_FALLBACK_MODELS", "")
+    config.llm.api_endpoint = os.getenv("MINIMAX_API_ENDPOINT", config.llm.api_endpoint)
+    config.llm.api_key = os.getenv("MINIMAX_API_KEY", config.llm.api_key)
+    config.llm.model = os.getenv("MINIMAX_MODEL", config.llm.model)
+    fallback_models = os.getenv("MINIMAX_FALLBACK_MODELS", "")
     config.llm.fallback_models = [
         model.strip()
         for model in fallback_models.split(",")

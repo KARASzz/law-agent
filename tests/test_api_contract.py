@@ -272,8 +272,8 @@ async def test_law_agent_app_review_tasks_include_runtime_from_audit():
                 "LLMConfig",
                 (),
                 {
-                    "model": "qwen3.6-plus",
-                    "fallback_models": ["glm-5.1"],
+                    "model": "MiniMax-M2.7",
+                    "fallback_models": [],
                 },
             )()
         },
@@ -289,8 +289,8 @@ async def test_law_agent_app_review_tasks_include_runtime_from_audit():
     assert items[0]["task_title"] == "咨询工作台能力"
     assert items[0]["llm_enabled"] is True
     assert items[0]["llm_status"] == "called"
-    assert items[0]["llm_model"] == "qwen3.6-plus"
-    assert items[0]["llm_fallback_models"] == ["glm-5.1"]
+    assert items[0]["llm_model"] == "MiniMax-M2.7"
+    assert items[0]["llm_fallback_models"] == []
 
 
 @pytest.mark.asyncio

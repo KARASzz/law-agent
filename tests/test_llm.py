@@ -15,7 +15,7 @@ def test_openai_compatible_llm_extracts_message_content():
     client = OpenAICompatibleLLMClient(
         api_endpoint="https://example.com/v1",
         api_key="test",
-        model="glm-5.1",
+        model="primary-model",
     )
 
     content = client._extract_content(
@@ -42,7 +42,7 @@ async def test_openai_compatible_llm_falls_back_to_next_model(monkeypatch):
         async def post(self, url, json, headers):
             calls.append(json["model"])
             request = httpx.Request("POST", url)
-            if json["model"] == "glm-5.1":
+            if json["model"] == "primary-model":
                 return httpx.Response(429, json={"error": "busy"}, request=request)
             return httpx.Response(
                 200,
@@ -55,15 +55,15 @@ async def test_openai_compatible_llm_falls_back_to_next_model(monkeypatch):
     client = OpenAICompatibleLLMClient(
         api_endpoint="https://example.com/v1",
         api_key="test",
-        model="glm-5.1",
-        fallback_models=["qwen3.6-plus"],
+        model="primary-model",
+        fallback_models=["fallback-model"],
     )
 
     response = await client.chat([{"role": "user", "content": "test"}])
 
     assert response.content == "回退模型成功"
-    assert response.model == "qwen3.6-plus"
-    assert calls == ["glm-5.1", "qwen3.6-plus"]
+    assert response.model == "fallback-model"
+    assert calls == ["primary-model", "fallback-model"]
 
 
 @pytest.mark.asyncio

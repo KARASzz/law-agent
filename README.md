@@ -13,7 +13,7 @@
 - 写入审计日志，保留 trace_id、意图、风险、工具调用等记录。
 - 导入每周更新的律师客户画像 JSON，作为后续编排和策略判断的驱动数据源。
 
-需要注意：LLM 客户端和真实 RAG 数据源目前仍是预留/配置型能力。没有外部 RAG API 时，法规、案例、引用核验、合同条款检索会返回空结果或降级结果；文书模板生成和客户画像建库不依赖外部服务。云端正式版计划接入阿里云百炼 / DashScope、阿里云知识库或 DashVector、OSS、RDS PostgreSQL 等服务。
+需要注意：LLM 客户端和真实 RAG 数据源目前仍是预留/配置型能力。没有外部 RAG API 时，法规、案例、引用核验、合同条款检索会返回空结果或降级结果；文书模板生成和客户画像建库不依赖外部服务。当前 LLM 调用入口切换为 MiniMax，云端正式版仍需接入知识库、OSS、RDS PostgreSQL 等服务。
 
 ## 云端部署定位
 
@@ -28,7 +28,7 @@
 推荐云端组件：
 
 - **FastAPI Law Agent**：主服务，负责业务 API、编排、风控、审计。
-- **阿里云百炼 / DashScope**：LLM 调用和应用调用入口。
+- **MiniMax**：当前 LLM 调用入口，使用 OpenAI 兼容模式接入。
 - **阿里云知识库或 DashVector**：法律专业知识库检索。
 - **RDS PostgreSQL**：业务数据、客户画像、审计日志、审阅任务。
 - **OSS**：法规、案例、合同模板、上传文件、知识库源文件归档。
@@ -114,7 +114,7 @@ Knowledge Memory
         ├── RiskLabeler
         ├── AuditLogger
         ├── ClientProfileStore
-        ├── 阿里云百炼 / DashScope
+        ├── MiniMax LLM
         ├── 法律知识库：百炼知识库 / DashVector
         ├── 业务数据库：RDS PostgreSQL
         ├── 文件归档：OSS
@@ -297,10 +297,11 @@ RAG_API_ENDPOINT=http://localhost:8000
 RAG_API_KEY=your_rag_api_key_here
 
 LLM_PROVIDER=openai-compatible
-LLM_API_ENDPOINT=https://token.jugei.com/v1
-LLM_API_KEY=your_llm_api_key_here
-LLM_MODEL=qwen3.6-plus
-LLM_FALLBACK_MODELS=glm-5.1
+# 旧的 LLM_API_KEY / LLM_API_ENDPOINT / LLM_MODEL 调用方式已冻结
+MINIMAX_API_ENDPOINT=https://api.minimaxi.com/v1
+MINIMAX_API_KEY=your_minimax_api_key_here
+MINIMAX_MODEL=MiniMax-M2.7
+MINIMAX_FALLBACK_MODELS=
 LLM_TEMPERATURE=0.3
 LLM_MAX_TOKENS=2000
 
@@ -489,7 +490,7 @@ for profile in profiles:
 
 1. 接入 OpenClaw Skill 层。
 2. 接入阿里云百炼知识库或 DashVector，形成可更新的法律专业知识库。
-3. 后续将 LLM 提供方切换为阿里云百炼 / DashScope。
+3. 保持旧 LLM 调用方式冻结，优先完善 MiniMax 调用、审计与失败降级。
 4. 将客户画像、审计日志、审阅任务从 SQLite 迁移到 RDS PostgreSQL。
 5. 部署 ECS + Docker Compose + Nginx + HTTPS 的 MVP 云端版本。
 6. 增加知识库更新任务：OSS 上传、文档清洗、分块、元数据标注、导入、审计。
