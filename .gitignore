@@ -47,6 +47,10 @@ data/
 logs/
 *.log
 
+# Generated reports
+reports/preflight/
+reports/ltm_audit/
+
 # Test / cache
 .pytest_cache/
 .coverage
