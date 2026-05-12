@@ -844,9 +844,40 @@
           );
         },
       },
+      search: {
+        name: "/search",
+        description: "普通联网检索",
+        run: async (text) => runWebResearchCommand(text, "quick_search"),
+      },
+      research: {
+        name: "/research",
+        description: "深度联网研究",
+        run: async (text) => runWebResearchCommand(text, "deep_research"),
+      },
+      extract: {
+        name: "/extract",
+        description: "读取指定网页正文",
+        run: async (text) => runWebResearchCommand(text, "extract_url"),
+      },
+      site: {
+        name: "/site",
+        description: "发现或采集指定站点资料",
+        run: async (text) => runWebResearchCommand(text, "site_discovery"),
+      },
     };
 
-    const COMMAND_ORDER = ["help", "clear", "new", "review", "examples", "status"];
+    const COMMAND_ORDER = [
+      "help",
+      "clear",
+      "new",
+      "review",
+      "examples",
+      "status",
+      "search",
+      "research",
+      "extract",
+      "site"
+    ];
 
     function renderCommands() {
       $("commandList").innerHTML = COMMAND_ORDER.map((key) => {
@@ -900,6 +931,112 @@
       state.reviewTask = null;
       renderCurrent();
       setStatus("已执行指令", "done");
+    }
+
+    async function runWebResearchCommand(rawText, purpose) {
+      const parsed = parseResearchCommand(rawText, purpose);
+      if (!parsed.query && !parsed.urls.length && !parsed.site_url) {
+        showCommandResult(
+          "联网研究指令",
+          "请输入要检索的问题或 URL。\n示例：/search 最高人民法院 建设工程 实际施工人\n示例：/extract https://example.com/article\n示例：/site court.gov.cn 建设工程"
+        );
+        return;
+      }
+
+      setStatus("联网研究中", "processing");
+      const data = await api("/api/v1/research/web", {
+        method: "POST",
+        body: JSON.stringify(parsed)
+      });
+      state.current = {
+        success: true,
+        task_id: "web-research",
+        trace_id: `web-research-${Date.now()}`,
+        output: formatResearchOutput(data),
+        intent: "web_research",
+        risk_level: "medium",
+        confidence: 1,
+        requires_human_review: false,
+        can_export: false,
+        tools_used: (data.tool_calls || []).map((call) => `external.${call.provider}.${call.tool}`),
+        profile_record_ids: [],
+        profile_strategy: {},
+        review_status: "not_required",
+        review_task: null,
+        llm_enabled: false,
+        llm_status: "not_called",
+        llm_tools_used: [],
+        llm_model: "",
+        llm_fallback_models: [],
+      };
+      state.reviewTask = null;
+      renderCurrent();
+      setStatus("联网研究完成", "done");
+    }
+
+    function parseResearchCommand(rawText, purpose) {
+      const parts = rawText.trim().split(/\s+/);
+      parts.shift();
+      const urlPattern = /^https?:\/\/\S+/i;
+      const urls = parts.filter((part) => urlPattern.test(part));
+      let siteUrl = "";
+      let queryParts = parts.filter((part) => !urlPattern.test(part));
+
+      if (purpose === "extract_url") {
+        return {
+          query: queryParts.join(" "),
+          purpose,
+          urls,
+          site_url: "",
+        };
+      }
+
+      if (purpose === "site_discovery") {
+        siteUrl = parts[0] || "";
+        queryParts = parts.slice(1);
+      }
+
+      return {
+        query: queryParts.join(" "),
+        purpose,
+        urls,
+        site_url: siteUrl,
+      };
+    }
+
+    function formatResearchOutput(data) {
+      const lines = ["## 联网研究结果"];
+      if (data.answer) {
+        lines.push("", data.answer);
+      }
+
+      const sources = data.sources || [];
+      if (sources.length) {
+        lines.push("", "### 来源");
+        sources.slice(0, 10).forEach((source, index) => {
+          lines.push(`${index + 1}. ${source.title || source.url || "未命名来源"}`);
+          if (source.url) lines.push(`   ${source.url}`);
+          lines.push(`   工具：${source.provider || "-"} / ${source.tool || "-"}`);
+          const snippet = source.snippet || source.content || "";
+          if (snippet) lines.push(`   摘要：${snippet.slice(0, 220)}`);
+        });
+      }
+
+      const calls = data.tool_calls || [];
+      if (calls.length) {
+        lines.push("", "### 工具调用");
+        calls.forEach((call) => {
+          lines.push(`- ${call.provider}.${call.tool}: ${call.status}${call.count != null ? ` (${call.count})` : ""}`);
+        });
+      }
+
+      const warnings = data.warnings || [];
+      if (warnings.length) {
+        lines.push("", "### 注意");
+        warnings.forEach((item) => lines.push(`- ${item}`));
+      }
+
+      return lines.join("\n");
     }
 
     function clearWorkbenchCache() {

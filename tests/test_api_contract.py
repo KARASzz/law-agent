@@ -45,6 +45,19 @@ class StubLawApp:
             "error": None,
         }
 
+    async def research_web(self, **kwargs):
+        return {
+            "success": True,
+            "query": kwargs["query"],
+            "purpose": kwargs.get("purpose") or "quick_search",
+            "answer": "联网研究结果",
+            "sources": [],
+            "tool_calls": [{"provider": "tavily", "tool": "search:general", "status": "ok", "count": 0}],
+            "providers_used": ["tavily"],
+            "warnings": [],
+            "usage": {},
+        }
+
     def import_profiles(self, json_file_path: str):
         return {
             "import_id": "import_1",
@@ -135,6 +148,13 @@ def test_create_api_app_routes():
         assert payload["can_export"] is True
         assert payload["review_status"] == "not_required"
         assert payload["profile_record_ids"] == []
+
+        research_response = client.post(
+            "/api/v1/research/web",
+            json={"query": "查最新法规", "purpose": "quick_search"},
+        )
+        assert research_response.status_code == 200
+        assert research_response.json()["answer"] == "联网研究结果"
 
         workbench_response = client.get("/workbench")
         assert workbench_response.status_code == 200

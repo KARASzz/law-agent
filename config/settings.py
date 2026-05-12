@@ -48,6 +48,17 @@ class ServerConfig(BaseModel):
     debug: bool = False
 
 
+class ExternalSearchConfig(BaseModel):
+    """联网研究工具配置"""
+    enabled: bool = False
+    tavily_api_key: str = ""
+    tavily_project_id: str = ""
+    brave_search_api_key: str = ""
+    timeout: int = 20
+    max_results: int = 5
+    max_tokens: int = 8192
+
+
 class AppConfig(BaseModel):
     """应用配置"""
     app_name: str = "律师智能体"
@@ -59,6 +70,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     database: DatabaseConfig = DatabaseConfig()
     server: ServerConfig = ServerConfig()
+    external_search: ExternalSearchConfig = ExternalSearchConfig()
     
     # 功能开关
     enable_citation_verify: bool = True
@@ -109,8 +121,44 @@ def load_config() -> AppConfig:
         "CLIENT_PROFILE_DB_PATH",
         config.database.client_profile_db_path,
     )
+    config.external_search.enabled = _env_bool(
+        "ENABLE_EXTERNAL_SEARCH",
+        config.external_search.enabled,
+    )
+    config.external_search.tavily_api_key = os.getenv(
+        "TAVILY_API_KEY",
+        config.external_search.tavily_api_key,
+    )
+    config.external_search.tavily_project_id = os.getenv(
+        "TAVILY_PROJECT_ID",
+        config.external_search.tavily_project_id,
+    )
+    config.external_search.brave_search_api_key = os.getenv(
+        "BRAVE_SEARCH_API_KEY",
+        config.external_search.brave_search_api_key,
+    )
+    config.external_search.timeout = int(os.getenv(
+        "WEB_SEARCH_TIMEOUT",
+        config.external_search.timeout,
+    ))
+    config.external_search.max_results = int(os.getenv(
+        "WEB_SEARCH_MAX_RESULTS",
+        config.external_search.max_results,
+    ))
+    config.external_search.max_tokens = int(os.getenv(
+        "WEB_SEARCH_MAX_TOKENS",
+        config.external_search.max_tokens,
+    ))
     
     return config
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """读取常见布尔环境变量写法。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 # 全局配置实例

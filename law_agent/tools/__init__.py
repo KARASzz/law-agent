@@ -20,6 +20,10 @@ from .case_search import CaseSearchTool
 from .citation import CitationVerifyTool
 from .document import DocumentTool
 from .rag_client import RAGClient
+from .external_research import (
+    ExternalResearchTool,
+    create_external_research_tool,
+)
 
 __all__ = [
     "BaseTool",
@@ -30,4 +34,6 @@ __all__ = [
     "CitationVerifyTool",
     "DocumentTool",
     "RAGClient",
+    "ExternalResearchTool",
+    "create_external_research_tool",
 ]

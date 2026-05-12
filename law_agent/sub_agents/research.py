@@ -10,6 +10,8 @@ Research子Agent
 注意：这就是一个普通的类，不是独立服务
 """
 
+from __future__ import annotations
+
 import json
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -34,6 +36,7 @@ class ResearchAgent:
         self,
         rag_client: RAGClient,
         llm_client: Optional[Any] = None,
+        external_research_tool: Optional[Any] = None,
     ):
         """
         初始化Research子Agent
@@ -44,6 +47,7 @@ class ResearchAgent:
         """
         self.rag = rag_client
         self.llm = llm_client
+        self.external_research_tool = external_research_tool
         
         # 初始化工具
         self.regulation_tool = RegulationSearchTool(rag_client)
@@ -130,6 +134,17 @@ class ResearchAgent:
     ) -> str:
         """生成结论"""
         if not regulations:
+            external_section = await self._external_research_section(
+                query=query,
+                purpose="legal_source_check",
+                context=context,
+            )
+            if external_section:
+                return (
+                    "当前本地法规知识库未检索到可引用法规材料。"
+                    "以下为联网补充检索线索，需律师核验后使用。\n\n"
+                    f"{external_section}"
+                )
             if self.llm:
                 context.tools_used.append("llm.generate_regulation_answer")
                 prompt = f"""
@@ -228,6 +243,19 @@ class ResearchAgent:
         
         cases = case_result.data
 
+        if not cases:
+            external_section = await self._external_research_section(
+                query=description,
+                purpose="legal_source_check",
+                context=context,
+            )
+            if external_section:
+                return (
+                    "当前本地类案库未检索到可引用类案材料。"
+                    "以下为联网补充检索线索，需律师核验后使用。\n\n"
+                    f"{external_section}"
+                )
+
         if not cases and self.llm:
             context.tools_used.append("llm.generate_case_search_fallback")
             prompt = f"""
@@ -308,6 +336,17 @@ class ResearchAgent:
         docs = await self.rag.search_clauses(query=query, top_k=5)
         
         if not docs:
+            external_section = await self._external_research_section(
+                query=query,
+                purpose="legal_source_check",
+                context=context,
+            )
+            if external_section:
+                return (
+                    "当前本地合同条款库未检索到可引用材料。"
+                    "以下为联网补充检索线索，需律师核验后使用。\n\n"
+                    f"{external_section}"
+                )
             if self.llm:
                 context.tools_used.append("llm.generate_contract_review_fallback")
                 prompt = f"""
@@ -343,6 +382,106 @@ class ResearchAgent:
             text += "---\n\n"
         
         return text
+
+    async def external_research(
+        self,
+        query: str,
+        context: ProcessingContext,
+        purpose: str = "quick_search",
+        urls: Optional[List[str]] = None,
+        site_url: str = "",
+        providers: Optional[List[str]] = None,
+        max_results: Optional[int] = None,
+        freshness: str = "",
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """显式调用联网研究工具，供 API 层复用。"""
+        if not self.external_research_tool:
+            return {
+                "success": False,
+                "error": "external research is not configured",
+            }
+        result = await self.external_research_tool.execute(
+            query=query,
+            purpose=purpose,
+            urls=urls or [],
+            site_url=site_url,
+            providers=providers or [],
+            max_results=max_results,
+            freshness=freshness,
+            include_domains=include_domains or [],
+            exclude_domains=exclude_domains or [],
+        )
+        if result.success and isinstance(result.data, dict):
+            if context is not None:
+                context.tools_used.extend(
+                    f"external.{call.get('provider')}.{call.get('tool')}"
+                    for call in result.data.get("tool_calls", [])
+                    if call.get("status") == "ok"
+                )
+        return result.data if result.success else {"success": False, "error": result.error}
+
+    async def _external_research_section(
+        self,
+        query: str,
+        purpose: str,
+        context: "ProcessingContext",
+    ) -> str:
+        """生成联网补充资料段落，不写入已核验法律依据。"""
+        if not self.external_research_tool:
+            return ""
+        result = await self.external_research_tool.execute(
+            query=query,
+            purpose=purpose,
+            max_results=5,
+        )
+        if not result.success or not isinstance(result.data, dict):
+            if result.error and context is not None:
+                context.tools_used.append(f"external.research_failed:{result.error}")
+            return ""
+
+        data = result.data
+        if context is not None:
+            context.tools_used.extend(
+                f"external.{call.get('provider')}.{call.get('tool')}"
+                for call in data.get("tool_calls", [])
+                if call.get("status") == "ok"
+            )
+        return self._format_external_research(data)
+
+    def _format_external_research(self, data: Dict[str, Any]) -> str:
+        """把联网研究结果格式化为安全的内部线索。"""
+        lines = ["## 联网补充资料（需核验）"]
+        answer = str(data.get("answer") or "").strip()
+        if answer:
+            lines.extend(["", answer])
+
+        sources = data.get("sources") or []
+        if sources:
+            lines.append("")
+            for index, source in enumerate(sources[:8], 1):
+                title = source.get("title") or source.get("url") or "未命名来源"
+                provider = source.get("provider") or "-"
+                tool = source.get("tool") or "-"
+                url = source.get("url") or ""
+                snippet = (
+                    source.get("snippet")
+                    or source.get("content")
+                    or ""
+                ).strip()
+                lines.append(f"{index}. {title}")
+                if url:
+                    lines.append(f"   来源链接：{url}")
+                lines.append(f"   工具：{provider}/{tool}")
+                if snippet:
+                    lines.append(f"   摘要：{snippet[:220]}")
+
+        warnings = data.get("warnings") or []
+        lines.extend(["", "注意：联网资料仅供检索线索和内部研究，不替代本地知识库、引用核验或律师人工审阅。"])
+        for warning in warnings:
+            lines.append(f"- {warning}")
+        return "\n".join(lines).strip()
 
 
 # ===== 便捷函数 =====

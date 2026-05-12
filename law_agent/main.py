@@ -23,6 +23,7 @@ from law_agent.tools import (
     CaseSearchTool,
     CitationVerifyTool,
     DocumentTool,
+    create_external_research_tool,
 )
 from law_agent.sub_agents import ResearchAgent, DocumentAgent
 from law_agent.intent import IntentRecognizer
@@ -60,6 +61,7 @@ class LawAgentApp:
         self.profile_store = ClientProfileStore(self.config.database.client_profile_db_path)
         self.review_store = ReviewTaskStore(self.config.database.task_db_path)
         self.llm_client = None
+        self.external_research_tool = None
         self._initialized = False
     
     async def initialize(self):
@@ -95,14 +97,23 @@ class LawAgentApp:
         case_tool = CaseSearchTool(rag_client)
         citation_tool = CitationVerifyTool(rag_client)
         document_tool = DocumentTool()
+        self.external_research_tool = create_external_research_tool(
+            self.config.external_search
+        )
         
         tool_registry.register_tool(regulation_tool)
         tool_registry.register_tool(case_tool)
         tool_registry.register_tool(citation_tool)
         tool_registry.register_tool(document_tool)
+        if self.external_research_tool:
+            tool_registry.register_tool(self.external_research_tool)
         
         # 初始化子Agent
-        research_agent = ResearchAgent(rag_client, self.llm_client)
+        research_agent = ResearchAgent(
+            rag_client,
+            self.llm_client,
+            external_research_tool=self.external_research_tool,
+        )
         document_agent = DocumentAgent(self.llm_client)
         
         # 初始化核心组件
@@ -122,6 +133,42 @@ class LawAgentApp:
         
         self._initialized = True
         print("✅ 律师智能体初始化完成")
+
+    async def research_web(
+        self,
+        query: str,
+        purpose: str = "quick_search",
+        urls: list[str] | None = None,
+        site_url: str = "",
+        providers: list[str] | None = None,
+        max_results: int | None = None,
+        freshness: str = "",
+        include_domains: list[str] | None = None,
+        exclude_domains: list[str] | None = None,
+    ) -> dict:
+        """显式调用联网研究工具。"""
+        if not self._initialized:
+            await self.initialize()
+        if not self.external_research_tool:
+            raise ExternalActionError("external research is not configured", status_code=503)
+
+        result = await self.external_research_tool.execute(
+            query=query,
+            purpose=purpose,
+            urls=urls or [],
+            site_url=site_url,
+            providers=providers or [],
+            max_results=max_results,
+            freshness=freshness,
+            include_domains=include_domains or [],
+            exclude_domains=exclude_domains or [],
+        )
+        if not result.success:
+            raise ExternalActionError(
+                result.error or "external research failed",
+                status_code=503,
+            )
+        return result.data
     
     async def process(self, user_input: str, session_id: str = "", user_id: str = "") -> dict:
         """
@@ -544,6 +591,8 @@ class LawAgentApp:
     
     async def shutdown(self):
         """关闭应用"""
+        if self.external_research_tool:
+            await self.external_research_tool.close()
         print("👋 关闭律师智能体...")
 
 
@@ -613,6 +662,17 @@ def create_api_app(law_app: LawAgentApp = None):
         export_format: str = "markdown"
         destination: str = ""
 
+    class ResearchWebRequest(BaseModel):
+        query: str
+        purpose: str = "quick_search"
+        urls: list[str] = Field(default_factory=list)
+        site_url: str = ""
+        providers: list[str] = Field(default_factory=list)
+        max_results: int | None = None
+        freshness: str = ""
+        include_domains: list[str] = Field(default_factory=list)
+        exclude_domains: list[str] = Field(default_factory=list)
+
     @app.on_event("startup")
     async def startup():
         await law_app.initialize()
@@ -630,6 +690,24 @@ def create_api_app(law_app: LawAgentApp = None):
             user_id=request.user_id,
         )
         return result
+
+    @app.post("/api/v1/research/web")
+    async def research_web(request: ResearchWebRequest):
+        """显式调用 Tavily/Brave 联网研究工具组。"""
+        try:
+            return await law_app.research_web(
+                query=request.query,
+                purpose=request.purpose,
+                urls=request.urls,
+                site_url=request.site_url,
+                providers=request.providers,
+                max_results=request.max_results,
+                freshness=request.freshness,
+                include_domains=request.include_domains,
+                exclude_domains=request.exclude_domains,
+            )
+        except ExternalActionError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     @app.get("/workbench", response_class=HTMLResponse)
     async def workbench():
