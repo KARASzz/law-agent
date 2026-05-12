@@ -47,3 +47,22 @@ def test_llm_config_defaults_to_minimax_without_key(monkeypatch):
     assert config.llm.api_key == ""
     assert config.llm.model == "MiniMax-M2.7"
     assert config.llm.fallback_models == []
+
+
+def test_llm_config_uses_dashscope_env_when_provider_is_dashscope(monkeypatch):
+    monkeypatch.setattr(settings, "load_dotenv", lambda: None)
+
+    monkeypatch.setenv("LLM_PROVIDER", "dashscope")
+    monkeypatch.setenv("DASHSCOPE_API_ENDPOINT", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "dashscope-key")
+    monkeypatch.setenv("DASHSCOPE_MODEL", "qwen-plus")
+    monkeypatch.setenv("DASHSCOPE_FALLBACK_MODELS", "qwen-turbo,qwen-long")
+    monkeypatch.setenv("MINIMAX_API_KEY", "minimax-key")
+
+    config = settings.load_config()
+
+    assert config.llm.provider == "dashscope"
+    assert config.llm.api_endpoint == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert config.llm.api_key == "dashscope-key"
+    assert config.llm.model == "qwen-plus"
+    assert config.llm.fallback_models == ["qwen-turbo", "qwen-long"]

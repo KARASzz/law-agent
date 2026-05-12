@@ -7,7 +7,7 @@ import json
 import pytest
 import httpx
 
-from law_agent.llm import OpenAICompatibleLLMClient
+from law_agent.llm import OpenAICompatibleLLMClient, create_llm_client
 from law_agent.tools.document import DocumentTool
 
 
@@ -23,6 +23,30 @@ def test_openai_compatible_llm_extracts_message_content():
     )
 
     assert content == "模型输出"
+
+
+def test_create_llm_client_accepts_dashscope_provider():
+    config = type(
+        "Config",
+        (),
+        {
+            "provider": "dashscope",
+            "api_endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "api_key": "dashscope-key",
+            "model": "qwen-plus",
+            "fallback_models": ["qwen-turbo"],
+            "temperature": 0.2,
+            "max_tokens": 1024,
+            "timeout": 30,
+        },
+    )()
+
+    client = create_llm_client(config)
+
+    assert isinstance(client, OpenAICompatibleLLMClient)
+    assert client.api_endpoint == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert client.model == "qwen-plus"
+    assert client.fallback_models == ["qwen-turbo"]
 
 
 @pytest.mark.asyncio

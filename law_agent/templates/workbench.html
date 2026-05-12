@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/workbench.css') }}">
+</head>
+<body>
+  <header>
+    <h1>{{ page_title }}</h1>
+  </header>
+
+  <main>
+    <aside>
+      <div class="panel input-panel">
+        <div class="panel-heading">
+          <h2>处理</h2>
+          <div class="status-line" id="globalStatus"></div>
+        </div>
+        <label for="userInput">输入</label>
+        <textarea id="userInput">{{ default_input }}</textarea>
+        <div class="user-switcher">
+          <div class="user-summary">
+            <span>当前用户</span>
+            <strong id="currentUserLabel">{{ active_user.label }}</strong>
+          </div>
+          <button class="secondary" id="userSwitchBtn" type="button">切换用户</button>
+        </div>
+        <div class="command-list" id="commandList"></div>
+        <div class="toolbar">
+          <button id="processBtn">处理</button>
+          <button class="secondary" id="refreshBtn">刷新</button>
+        </div>
+      </div>
+
+      <div class="panel queue-panel">
+        <h2>审阅任务</h2>
+        <div class="grid">
+          <div>
+            <label for="reviewFilter">状态</label>
+            <select id="reviewFilter">
+              <option value="">全部</option>
+              <option value="pending_review">pending_review</option>
+              <option value="confirmed">confirmed</option>
+              <option value="rejected">rejected</option>
+            </select>
+          </div>
+          <div>
+            <label for="riskFilter">风险</label>
+            <select id="riskFilter">
+              <option value="">全部</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+            </select>
+          </div>
+        </div>
+        <div class="toolbar">
+          <button class="secondary" id="loadTasksBtn">加载</button>
+        </div>
+        <div class="list" id="taskList"></div>
+      </div>
+    </aside>
+
+    <section>
+      <div class="panel summary-panel">
+        <div class="meta">
+          <div class="summary-card">
+            <span>trace_id</span>
+            <strong id="traceId">-</strong>
+          </div>
+          <div class="summary-card">
+            <span>intent</span>
+            <strong id="intentValue">-</strong>
+          </div>
+          <div class="summary-card">
+            <span>llm_status</span>
+            <strong id="llmStatus" class="summary-value">-</strong>
+          </div>
+          <div class="summary-card">
+            <span>review_status</span>
+            <strong id="reviewStatus" class="summary-value">-</strong>
+          </div>
+          <div class="summary-card">
+            <span>can_export</span>
+            <strong id="canExport">-</strong>
+          </div>
+          <div class="metric risk-metric risk-unknown" id="riskMetric">
+            <span>risk_level</span>
+            <strong id="riskLevel">-</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="panel output-panel">
+          <h2>处理结果</h2>
+          <div class="output" id="output"></div>
+        </div>
+
+        <div>
+          <div class="panel profile-panel">
+            <h2>命中画像</h2>
+            <dl class="kv" id="profileStrategy"></dl>
+          </div>
+
+          <div class="panel runtime-panel">
+            <h2>运行链路</h2>
+            <dl class="kv" id="runtimeInfo"></dl>
+            <div class="chips" id="toolChips"></div>
+          </div>
+
+          <div class="panel orchestration-panel">
+            <h2>层级编排</h2>
+            <div class="orchestration" id="orchestrationInfo"></div>
+          </div>
+
+          <div class="panel review-panel">
+            <h2>人工审阅</h2>
+            <label for="reviewerId">reviewer_id</label>
+            <input id="reviewerId" value="lawyer_001">
+            <label for="reviewedOutput">reviewed_output</label>
+            <textarea id="reviewedOutput"></textarea>
+            <label for="rejectionReason">rejection_reason</label>
+            <input id="rejectionReason" value="事实或证据不足，暂不对外使用">
+            <div class="toolbar">
+              <button id="confirmBtn">确认</button>
+              <button class="secondary" id="confirmEditedBtn">修改后确认</button>
+              <button class="danger" id="rejectBtn">驳回</button>
+            </div>
+          </div>
+
+          <div class="panel action-panel">
+            <h2>对外动作</h2>
+            <div class="grid">
+              <div>
+                <label for="actorId">actor_id</label>
+                <input id="actorId" value="assistant_001">
+              </div>
+              <div>
+                <label for="destination">destination</label>
+                <input id="destination" value="case-folder">
+              </div>
+            </div>
+            <div class="toolbar">
+              <button id="exportBtn">导出</button>
+              <button class="secondary" id="sendBtn">发送</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="panel audit-panel">
+          <h2>审计记录</h2>
+          <div class="list" id="auditList"></div>
+        </div>
+        <div class="panel audit-panel">
+          <h2>导出 / 发送审计</h2>
+          <div class="list" id="externalActionList"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    window.WORKBENCH_CONFIG = {{ {
+      "activeUser": active_user,
+      "examples": examples,
+      "apiPaths": api_paths,
+      "commands": commands
+    } | tojson }};
+  </script>
+  <script src="{{ url_for('static', path='/js/workbench.js') }}" defer></script>
+</body>
+</html>

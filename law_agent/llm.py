@@ -131,7 +131,7 @@ def create_llm_client(config: Any) -> Optional[OpenAICompatibleLLMClient]:
         return None
 
     provider = getattr(config, "provider", "openai-compatible")
-    if provider not in {"openai", "openai-compatible", "custom"}:
+    if provider not in {"openai", "openai-compatible", "custom", "dashscope"}:
         return None
 
     return OpenAICompatibleLLMClient(

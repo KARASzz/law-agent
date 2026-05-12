@@ -25,9 +25,9 @@ if %ERRORLEVEL% EQU 0 (
     exit /b 0
 )
 
-"%PYTHON_CMD%" -c "import fastapi, uvicorn" >nul 2>nul
+"%PYTHON_CMD%" -c "import fastapi, uvicorn, pydantic_settings" >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
-    echo [Law Agent] Missing FastAPI or uvicorn.
+    echo [Law Agent] Missing FastAPI, uvicorn, or pydantic_settings.
     echo [Law Agent] Please run:
     echo     "%PYTHON_CMD%" -m pip install -r requirements.txt
     pause

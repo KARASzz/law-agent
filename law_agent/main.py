@@ -83,7 +83,7 @@ class LawAgentApp:
             return
         
         configure_logging(self.config)
-        print("🚀 初始化律师智能体...")
+        print("[init] 初始化律师智能体...")
         
         # 初始化RAG客户端
         rag_client = RAGClient(
@@ -94,15 +94,15 @@ class LawAgentApp:
         
         # 检查RAG连接
         if await rag_client.health_check():
-            print("✅ RAG库连接成功")
+            print("[ok] RAG库连接成功")
         else:
-            print("⚠️ RAG库连接失败，继续启动...")
+            print("[warn] RAG库连接失败，继续启动...")
 
         self.llm_client = create_llm_client(self.config.llm)
         if self.llm_client:
-            print(f"✅ LLM客户端已启用：{self.config.llm.provider}/{self.config.llm.model}")
+            print(f"[ok] LLM客户端已启用：{self.config.llm.provider}/{self.config.llm.model}")
         else:
-            print("⚠️ 未配置LLM API Key，继续使用规则和模板逻辑")
+            print("[warn] 未配置LLM API Key，继续使用规则和模板逻辑")
         
         # 初始化工具
         tool_registry = ToolRegistry()
@@ -150,7 +150,7 @@ class LawAgentApp:
         )
         
         self._initialized = True
-        print("✅ 律师智能体初始化完成")
+        print("[ok] 律师智能体初始化完成")
 
     async def research_web(
         self,
@@ -656,7 +656,7 @@ class LawAgentApp:
         """关闭应用"""
         if self.external_research_tool:
             await self.external_research_tool.close()
-        print("👋 关闭律师智能体...")
+        print("[shutdown] 关闭律师智能体...")
 
 
 # ===== API服务 =====
@@ -694,12 +694,16 @@ def _extract_profile_record_ids(tools_used: str) -> list[str]:
 
 def create_api_app(law_app: LawAgentApp = None):
     """创建 FastAPI 应用，便于服务启动和测试复用。"""
-    from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+    from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
     from fastapi.responses import HTMLResponse
+    from fastapi.staticfiles import StaticFiles
     from pydantic import BaseModel, Field
 
     app = FastAPI(title="律师智能体 API")
     law_app = law_app or LawAgentApp()
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
     try:
         from fastapi.templating import Jinja2Templates
 
@@ -813,8 +817,53 @@ def create_api_app(law_app: LawAgentApp = None):
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     @app.get("/workbench", response_class=HTMLResponse)
-    async def workbench():
+    async def workbench(request: Request):
         """Web 工作台 MVP。"""
+        if app.state.templates:
+            return app.state.templates.TemplateResponse(
+                request,
+                "workbench.html",
+                {
+                    "page_title": "Law Agent 工作台",
+                    "default_input": "生成一份民事起诉状",
+                    "active_user": {
+                        "label": "开发用户",
+                        "user_id": "web_user",
+                        "session_id": "web_session",
+                    },
+                    "examples": [
+                        "公司拖欠工资三个月，员工是否可以立即解除劳动合同？",
+                        "帮我找建设工程实际施工人主张工程价款的类案",
+                        "生成一份民事起诉状：张三要求李四返还借款10万元",
+                        "审查一份房屋租赁合同，重点看违约责任和解除条款",
+                    ],
+                    "api_paths": {
+                        "health": "/api/v1/health",
+                        "process": "/api/v1/process",
+                        "research_web": "/api/v1/research/web",
+                        "tasks": "/api/v1/tasks",
+                        "review_tasks": "/api/v1/review/tasks",
+                        "audit": "/api/v1/audit",
+                        "external_actions": "/api/v1/audit/external-actions",
+                        "review_confirm": "/api/v1/review/confirm",
+                        "review_reject": "/api/v1/review/reject",
+                        "export": "/api/v1/export",
+                        "send": "/api/v1/send",
+                    },
+                    "commands": [
+                        {"key": "help", "name": "/help", "description": "查看帮助引导"},
+                        {"key": "clear", "name": "/clear", "description": "清理当前页面缓存"},
+                        {"key": "new", "name": "/new", "description": "新建一次空白处理"},
+                        {"key": "review", "name": "/review", "description": "加载待审阅任务"},
+                        {"key": "examples", "name": "/examples", "description": "查看输入示例"},
+                        {"key": "status", "name": "/status", "description": "查看服务与模型状态"},
+                        {"key": "search", "name": "/search", "description": "普通联网检索"},
+                        {"key": "research", "name": "/research", "description": "深度联网研究"},
+                        {"key": "extract", "name": "/extract", "description": "读取指定网页正文"},
+                        {"key": "site", "name": "/site", "description": "发现或采集指定站点资料"},
+                    ],
+                },
+            )
         workbench_path = Path(__file__).parent / "static" / "workbench.html"
         return HTMLResponse(workbench_path.read_text(encoding="utf-8"))
 
@@ -1012,10 +1061,10 @@ async def run_cli():
     
     while True:
         try:
-            user_input = input("👤 您: ").strip()
+            user_input = input("您: ").strip()
             
             if user_input.lower() in ["quit", "exit", "q"]:
-                print("👋 再见！")
+                print("再见！")
                 break
             
             if not user_input:
@@ -1023,24 +1072,24 @@ async def run_cli():
             
             result = await law_app.process(user_input)
             
-            print(f"\n🤖 律师智能体:")
+            print(f"\n律师智能体:")
             print("-"*40)
             print(result["output"])
             print("-"*40)
             
             if result.get("error"):
-                print(f"❌ 错误: {result['error']}")
+                print(f"[error] 错误: {result['error']}")
             
-            print(f"\n📊 trace_id: {result['trace_id']}")
-            print(f"📊 风险等级: {result['risk_level']}")
-            print(f"📊 处理时间: {result['processing_time']:.2f}s")
+            print(f"\ntrace_id: {result['trace_id']}")
+            print(f"风险等级: {result['risk_level']}")
+            print(f"处理时间: {result['processing_time']:.2f}s")
             print()
             
         except KeyboardInterrupt:
-            print("\n👋 再见！")
+            print("\n再见！")
             break
         except Exception as e:
-            print(f"❌ 出错: {e}")
+            print(f"[error] 出错: {e}")
 
 
 # ===== 入口点 =====
@@ -1086,7 +1135,7 @@ async def run_test():
         },
     ]
     # dfhbdfgbgdfgfd
-    print("🧪 开始测试...\n")
+    print("[test] 开始测试...\n")
     
     for i, test in enumerate(test_cases, 1):
         print(f"测试 {i}: {test['input']}")
@@ -1096,7 +1145,7 @@ async def run_test():
         print(f"  成功: {result['success']}")
         print()
     
-    print("✅ 测试完成")
+    print("[ok] 测试完成")
 
 
 if __name__ == "__main__":

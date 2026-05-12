@@ -77,6 +77,10 @@ class RawEnvSettings(BaseSettings):
     MINIMAX_API_KEY: str = ""
     MINIMAX_MODEL: str = "MiniMax-M2.7"
     MINIMAX_FALLBACK_MODELS: str = ""
+    DASHSCOPE_API_ENDPOINT: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_MODEL: str = "qwen-plus"
+    DASHSCOPE_FALLBACK_MODELS: str = ""
     LLM_TEMPERATURE: float = 0.3
     LLM_MAX_TOKENS: int = 2000
     LLM_TIMEOUT: int = 60
@@ -143,10 +147,16 @@ def load_config() -> AppConfig:
     config.rag.timeout = raw.RAG_TIMEOUT
     
     config.llm.provider = raw.LLM_PROVIDER
-    config.llm.api_endpoint = raw.MINIMAX_API_ENDPOINT
-    config.llm.api_key = raw.MINIMAX_API_KEY
-    config.llm.model = raw.MINIMAX_MODEL
-    fallback_models = raw.MINIMAX_FALLBACK_MODELS
+    if raw.LLM_PROVIDER == "dashscope":
+        config.llm.api_endpoint = raw.DASHSCOPE_API_ENDPOINT
+        config.llm.api_key = raw.DASHSCOPE_API_KEY
+        config.llm.model = raw.DASHSCOPE_MODEL
+        fallback_models = raw.DASHSCOPE_FALLBACK_MODELS
+    else:
+        config.llm.api_endpoint = raw.MINIMAX_API_ENDPOINT
+        config.llm.api_key = raw.MINIMAX_API_KEY
+        config.llm.model = raw.MINIMAX_MODEL
+        fallback_models = raw.MINIMAX_FALLBACK_MODELS
     config.llm.fallback_models = [
         model.strip()
         for model in fallback_models.split(",")

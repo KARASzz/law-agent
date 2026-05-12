@@ -209,7 +209,10 @@ def test_create_api_app_routes():
         assert workbench_response.status_code == 200
         assert "Law Agent 工作台" in workbench_response.text
         assert "层级编排" in workbench_response.text
-        assert "loadTaskHierarchy" in workbench_response.text
+        assert "WORKBENCH_CONFIG" in workbench_response.text
+        assert "/static/js/workbench.js" in workbench_response.text
+        assert client.get("/static/js/workbench.js").status_code == 200
+        assert client.get("/static/css/workbench.css").status_code == 200
 
         assert client.get("/api/v1/profiles?matter_type=民事合同").status_code == 200
         assert client.get("/api/v1/profiles/profile_1").status_code == 200
