@@ -59,6 +59,7 @@ def test_external_search_config_reads_env(monkeypatch):
     monkeypatch.setenv("WEB_SEARCH_TIMEOUT", "25")
     monkeypatch.setenv("WEB_SEARCH_MAX_RESULTS", "7")
     monkeypatch.setenv("WEB_SEARCH_MAX_TOKENS", "12000")
+    monkeypatch.setenv("ORCHESTRATION_DB_PATH", "data/test_orchestration.db")
 
     config = settings.load_config()
 
@@ -69,3 +70,4 @@ def test_external_search_config_reads_env(monkeypatch):
     assert config.external_search.timeout == 25
     assert config.external_search.max_results == 7
     assert config.external_search.max_tokens == 12000
+    assert config.database.orchestration_db_path == "data/test_orchestration.db"

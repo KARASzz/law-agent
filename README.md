@@ -263,6 +263,9 @@ law_agent/
 ├── risk.py                  # 风险分级
 ├── audit.py                 # 审计日志
 ├── client_profiles.py       # 律师客户画像记忆库
+├── storage_sqlmodel.py      # 审计/审阅/画像 SQLModel 迁移记录模型
+├── logging_config.py        # loguru 日志配置
+├── hierarchy/               # Hierarchical Orchestrator 任务、步骤、主管层
 ├── tools/
 │   ├── base.py              # 工具基类和注册表
 │   ├── rag_client.py        # 外部 RAG API 客户端
@@ -316,6 +319,7 @@ LLM_MAX_TOKENS=2000
 AUDIT_DB_PATH=data/audit.db
 TASK_DB_PATH=data/tasks.db
 CLIENT_PROFILE_DB_PATH=data/client_profiles.db
+ORCHESTRATION_DB_PATH=data/orchestration.db
 
 ALIYUN_DASHSCOPE_API_KEY=your_dashscope_api_key_here
 ALIYUN_KNOWLEDGE_BASE_ID=your_knowledge_base_id_here
@@ -367,6 +371,10 @@ http://localhost:8000
 GET  /api/v1/health
 GET  /api/v1/stats
 POST /api/v1/process
+POST /api/v1/tasks
+GET  /api/v1/tasks/{task_id}
+GET  /api/v1/tasks/{task_id}/steps
+POST /api/v1/files/upload
 POST /api/v1/research/web
 POST /api/v1/profiles/import
 GET  /api/v1/profiles
@@ -383,7 +391,7 @@ GET  /workbench
 
 中高风险输出在 `/process` 中会返回 `can_export=false`，必须经 `/review/confirm` 人工确认后，才能通过 `/export` 或 `/send` 记录对外动作；确认前内容、确认后内容、确认人、确认时间和命中的画像规则会写入审计明细。
 
-Web 工作台入口：`http://localhost:8000/workbench`。工作台可提交处理请求、查看风险和 trace_id、查看画像策略、查询审计记录，并完成确认、驳回、修改后确认、导出或发送留痕。当前工作台按单用户开发模式运行，界面提供“切换用户”入口但默认固定使用 `web_user` / `web_session`；后续接入登录态或团队用户列表时，可从该入口扩展多用户切换。
+Web 工作台入口：`http://localhost:8000/workbench`。工作台可提交处理请求、查看风险和 trace_id、查看画像策略、查询审计记录，并完成确认、驳回、修改后确认、导出或发送留痕。处理完成后会自动读取 `/api/v1/tasks/{task_id}`，展示层级编排任务、步骤状态、每步工具调用和失败原因。当前工作台按单用户开发模式运行，界面提供“切换用户”入口但默认固定使用 `web_user` / `web_session`；后续接入登录态或团队用户列表时，可从该入口扩展多用户切换。
 
 工作台已预置轻量核心指令，输入框直接输入或点击指令按钮均可执行：
 
@@ -438,6 +446,68 @@ place_or_entity    地点、机构、实体查询
 ```
 
 联网研究工具会按任务目的组合调用 Tavily Search / Extract / Map / Crawl / Research 和 Brave LLM Context / Web / News。联网资料默认只作为内部研究线索，不会写入“已核验法律依据”；中高风险输出仍走人工审阅和导出/发送门禁。
+
+## Hierarchical Orchestrator
+
+当前后端已开始从单层 `LawOrchestrator` 迁移到 Hierarchical 模式。`/api/v1/process` 仍保持原响应格式，但内部会创建一条层级编排任务，记录 intent、profile、supervisor、risk 等步骤。
+
+层级结构：
+
+```text
+RootOrchestrator
+├── WorkflowPlanner
+├── SupervisorOrchestrator
+│   ├── ResearchSupervisor
+│   ├── DocumentSupervisor
+│   └── ReviewSupervisor
+└── OrchestrationStore
+    ├── OrchestrationTask
+    ├── OrchestrationStep
+    └── ToolCallRecord
+```
+
+新增任务接口：
+
+```text
+POST /api/v1/tasks
+```
+
+请求体与 `/api/v1/process` 相同：
+
+```json
+{
+  "user_input": "帮我找建设工程实际施工人主张工程价款的类案",
+  "session_id": "session_123",
+  "user_id": "user_456"
+}
+```
+
+返回包含兼容处理结果和层级任务：
+
+```json
+{
+  "task": {
+    "task_id": "task-id",
+    "trace_id": "trace-id",
+    "status": "completed",
+    "steps": [],
+    "tool_calls": []
+  },
+  "result": {
+    "success": true,
+    "output": "..."
+  }
+}
+```
+
+可以用 `GET /api/v1/tasks/{task_id}` 查询任务、步骤和工具调用，用 `GET /api/v1/tasks/{task_id}/steps` 只查询步骤列表。文件上传入口为 `POST /api/v1/files/upload`，字段为 multipart `file` 和可选 `trace_id`，文件会保存到 `data/uploads/`。
+
+配置说明：
+
+- `ORCHESTRATION_DB_PATH` 控制层级任务库路径，默认 `data/orchestration.db`。
+- 配置读取已迁移到 `pydantic-settings`，仍兼容现有 `.env` 变量名。
+- 任务模型优先使用 SQLModel；在尚未安装 `sqlmodel` 的开发环境中会回退到 SQLite 适配层，安装依赖后自动使用 SQLModel。
+- `AuditLogger` 和 `ReviewTaskStore` 已增加 SQLModel 适配层，运行时会在依赖可用时使用同名表读写旧 SQLite 文件；客户画像库已提供 SQLModel 迁移计划，MVP 阶段继续以 sqlite3 导入逻辑为准。
 
 ### 内置样例
 
@@ -525,7 +595,7 @@ for profile in profiles:
 - 飞书入口目前只有环境变量模板，还没有完整机器人接入代码。
 - 合同审查还处于占位实现，适合继续扩展。
 - 文书生成已支持 LLM 增强，模型失败时会自动退回模板生成。
-- 客户画像库已经接入 `LawOrchestrator` 的基础决策链路，但仍是本地 SQLite / 规则匹配版本，云端正式版应迁移到 RDS PostgreSQL。
+- 客户画像库已经接入 `LawOrchestrator` 的基础决策链路，当前已规划 SQLModel 迁移模型，但导入写入仍是本地 SQLite / 规则匹配版本；云端正式版应迁移到 RDS PostgreSQL。
 - 云端部署、HTTPS、监控告警、备份恢复、密钥管理尚未实现。
 
 ## 建议下一步
@@ -533,7 +603,7 @@ for profile in profiles:
 1. 接入 OpenClaw Skill 层。
 2. 接入阿里云百炼知识库或 DashVector，形成可更新的法律专业知识库。
 3. 保持旧 LLM 调用方式冻结，优先完善 MiniMax 调用、审计与失败降级。
-4. 将客户画像、审计日志、审阅任务从 SQLite 迁移到 RDS PostgreSQL。
+4. 将客户画像导入链路迁移到 SQLModel，再统一切换到 RDS PostgreSQL。
 5. 部署 ECS + Docker Compose + Nginx + HTTPS 的 MVP 云端版本。
 6. 增加知识库更新任务：OSS 上传、文档清洗、分块、元数据标注、导入、审计。
 7. 增加监控、日志、告警、备份和恢复策略。

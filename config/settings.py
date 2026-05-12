@@ -4,10 +4,9 @@
 提供应用配置管理
 """
 
-import os
-from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 try:
     from dotenv import load_dotenv
@@ -39,6 +38,7 @@ class DatabaseConfig(BaseModel):
     audit_db_path: str = "data/audit.db"
     task_db_path: str = "data/tasks.db"
     client_profile_db_path: str = "data/client_profiles.db"
+    orchestration_db_path: str = "data/orchestration.db"
 
 
 class ServerConfig(BaseModel):
@@ -57,6 +57,47 @@ class ExternalSearchConfig(BaseModel):
     timeout: int = 20
     max_results: int = 5
     max_tokens: int = 8192
+
+
+class RawEnvSettings(BaseSettings):
+    """扁平环境变量入口，兼容现有 .env 命名。"""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    RAG_API_ENDPOINT: str = "http://localhost:8000"
+    RAG_API_KEY: str = ""
+    RAG_TIMEOUT: int = 30
+
+    LLM_PROVIDER: str = "openai-compatible"
+    MINIMAX_API_ENDPOINT: str = "https://api.minimaxi.com/v1"
+    MINIMAX_API_KEY: str = ""
+    MINIMAX_MODEL: str = "MiniMax-M2.7"
+    MINIMAX_FALLBACK_MODELS: str = ""
+    LLM_TEMPERATURE: float = 0.3
+    LLM_MAX_TOKENS: int = 2000
+    LLM_TIMEOUT: int = 60
+
+    AUDIT_DB_PATH: str = "data/audit.db"
+    TASK_DB_PATH: str = "data/tasks.db"
+    CLIENT_PROFILE_DB_PATH: str = "data/client_profiles.db"
+    ORCHESTRATION_DB_PATH: str = "data/orchestration.db"
+
+    SERVER_HOST: str = "0.0.0.0"
+    SERVER_PORT: int = 8000
+    SERVER_DEBUG: bool = False
+    ENVIRONMENT: str = "development"
+
+    ENABLE_EXTERNAL_SEARCH: bool = False
+    TAVILY_API_KEY: str = ""
+    TAVILY_PROJECT_ID: str = ""
+    BRAVE_SEARCH_API_KEY: str = ""
+    WEB_SEARCH_TIMEOUT: int = 20
+    WEB_SEARCH_MAX_RESULTS: int = 5
+    WEB_SEARCH_MAX_TOKENS: int = 8192
 
 
 class AppConfig(BaseModel):
@@ -94,71 +135,46 @@ def load_config() -> AppConfig:
     if load_dotenv:
         load_dotenv()
 
+    raw = RawEnvSettings()
     config = AppConfig()
     
-    # 从环境变量加载
-    config.rag.api_endpoint = os.getenv("RAG_API_ENDPOINT", config.rag.api_endpoint)
-    config.rag.api_key = os.getenv("RAG_API_KEY", config.rag.api_key)
+    config.rag.api_endpoint = raw.RAG_API_ENDPOINT
+    config.rag.api_key = raw.RAG_API_KEY
+    config.rag.timeout = raw.RAG_TIMEOUT
     
-    config.llm.provider = os.getenv("LLM_PROVIDER", config.llm.provider)
-    config.llm.api_endpoint = os.getenv("MINIMAX_API_ENDPOINT", config.llm.api_endpoint)
-    config.llm.api_key = os.getenv("MINIMAX_API_KEY", config.llm.api_key)
-    config.llm.model = os.getenv("MINIMAX_MODEL", config.llm.model)
-    fallback_models = os.getenv("MINIMAX_FALLBACK_MODELS", "")
+    config.llm.provider = raw.LLM_PROVIDER
+    config.llm.api_endpoint = raw.MINIMAX_API_ENDPOINT
+    config.llm.api_key = raw.MINIMAX_API_KEY
+    config.llm.model = raw.MINIMAX_MODEL
+    fallback_models = raw.MINIMAX_FALLBACK_MODELS
     config.llm.fallback_models = [
         model.strip()
         for model in fallback_models.split(",")
         if model.strip()
     ]
-    config.llm.temperature = float(os.getenv("LLM_TEMPERATURE", config.llm.temperature))
-    config.llm.max_tokens = int(os.getenv("LLM_MAX_TOKENS", config.llm.max_tokens))
-    config.llm.timeout = int(os.getenv("LLM_TIMEOUT", config.llm.timeout))
+    config.llm.temperature = raw.LLM_TEMPERATURE
+    config.llm.max_tokens = raw.LLM_MAX_TOKENS
+    config.llm.timeout = raw.LLM_TIMEOUT
     
-    config.environment = os.getenv("ENVIRONMENT", config.environment)
-    config.database.audit_db_path = os.getenv("AUDIT_DB_PATH", config.database.audit_db_path)
-    config.database.task_db_path = os.getenv("TASK_DB_PATH", config.database.task_db_path)
-    config.database.client_profile_db_path = os.getenv(
-        "CLIENT_PROFILE_DB_PATH",
-        config.database.client_profile_db_path,
-    )
-    config.external_search.enabled = _env_bool(
-        "ENABLE_EXTERNAL_SEARCH",
-        config.external_search.enabled,
-    )
-    config.external_search.tavily_api_key = os.getenv(
-        "TAVILY_API_KEY",
-        config.external_search.tavily_api_key,
-    )
-    config.external_search.tavily_project_id = os.getenv(
-        "TAVILY_PROJECT_ID",
-        config.external_search.tavily_project_id,
-    )
-    config.external_search.brave_search_api_key = os.getenv(
-        "BRAVE_SEARCH_API_KEY",
-        config.external_search.brave_search_api_key,
-    )
-    config.external_search.timeout = int(os.getenv(
-        "WEB_SEARCH_TIMEOUT",
-        config.external_search.timeout,
-    ))
-    config.external_search.max_results = int(os.getenv(
-        "WEB_SEARCH_MAX_RESULTS",
-        config.external_search.max_results,
-    ))
-    config.external_search.max_tokens = int(os.getenv(
-        "WEB_SEARCH_MAX_TOKENS",
-        config.external_search.max_tokens,
-    ))
+    config.environment = raw.ENVIRONMENT
+    config.database.audit_db_path = raw.AUDIT_DB_PATH
+    config.database.task_db_path = raw.TASK_DB_PATH
+    config.database.client_profile_db_path = raw.CLIENT_PROFILE_DB_PATH
+    config.database.orchestration_db_path = raw.ORCHESTRATION_DB_PATH
+
+    config.server.host = raw.SERVER_HOST
+    config.server.port = raw.SERVER_PORT
+    config.server.debug = raw.SERVER_DEBUG
+
+    config.external_search.enabled = raw.ENABLE_EXTERNAL_SEARCH
+    config.external_search.tavily_api_key = raw.TAVILY_API_KEY
+    config.external_search.tavily_project_id = raw.TAVILY_PROJECT_ID
+    config.external_search.brave_search_api_key = raw.BRAVE_SEARCH_API_KEY
+    config.external_search.timeout = raw.WEB_SEARCH_TIMEOUT
+    config.external_search.max_results = raw.WEB_SEARCH_MAX_RESULTS
+    config.external_search.max_tokens = raw.WEB_SEARCH_MAX_TOKENS
     
     return config
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    """读取常见布尔环境变量写法。"""
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 # 全局配置实例

@@ -15,6 +15,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from law_agent.storage_sqlmodel import (
+    CLIENT_PROFILE_SQLMODEL_MIGRATION_PLAN,
+    SQLMODEL_AVAILABLE,
+)
+
 
 @dataclass
 class IngestionSummary:
@@ -272,6 +277,15 @@ class ClientProfileStore:
             "matter_type_stats": by_matter,
             "profile_update_action_stats": by_action,
         }
+
+    def get_sqlmodel_migration_plan(self) -> Dict[str, Any]:
+        """返回客户画像库迁移到 SQLModel 的结构化计划。"""
+        plan = dict(CLIENT_PROFILE_SQLMODEL_MIGRATION_PLAN)
+        plan["sqlmodel_available"] = SQLMODEL_AVAILABLE
+        plan["current_backend"] = "sqlite3"
+        plan["target_backend"] = "sqlmodel"
+        plan["db_path"] = self.db_path
+        return plan
 
     def _upsert_record(
         self,

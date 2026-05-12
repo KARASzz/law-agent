@@ -58,6 +58,38 @@ class StubLawApp:
             "usage": {},
         }
 
+    async def create_task(self, **kwargs):
+        return {
+            "task": {
+                "task_id": "task_1",
+                "trace_id": "trace_1",
+                "status": "completed",
+            },
+            "result": await self.process(**kwargs),
+        }
+
+    def get_task(self, task_id: str):
+        if task_id == "missing":
+            return None
+        return {
+            "task_id": task_id,
+            "trace_id": "trace_1",
+            "status": "completed",
+            "steps": [],
+            "tool_calls": [],
+        }
+
+    def get_task_steps(self, task_id: str):
+        return [{"task_id": task_id, "name": "intent.recognize"}]
+
+    async def save_upload(self, upload_file, trace_id: str = ""):
+        return {
+            "filename": upload_file.filename,
+            "path": "data/uploads/test.txt",
+            "size": len(await upload_file.read()),
+            "trace_id": trace_id,
+        }
+
     def import_profiles(self, json_file_path: str):
         return {
             "import_id": "import_1",
@@ -156,9 +188,28 @@ def test_create_api_app_routes():
         assert research_response.status_code == 200
         assert research_response.json()["answer"] == "联网研究结果"
 
+        task_response = client.post(
+            "/api/v1/tasks",
+            json={"user_input": "查法规", "session_id": "s1", "user_id": "u1"},
+        )
+        assert task_response.status_code == 200
+        assert task_response.json()["task"]["status"] == "completed"
+        assert client.get("/api/v1/tasks/task_1").status_code == 200
+        assert client.get("/api/v1/tasks/task_1/steps").json()["items"][0]["name"] == "intent.recognize"
+        assert client.get("/api/v1/tasks/missing").status_code == 404
+        upload_response = client.post(
+            "/api/v1/files/upload",
+            data={"trace_id": "trace_1"},
+            files={"file": ("contract.txt", b"contract body", "text/plain")},
+        )
+        assert upload_response.status_code == 200
+        assert upload_response.json()["filename"] == "contract.txt"
+
         workbench_response = client.get("/workbench")
         assert workbench_response.status_code == 200
         assert "Law Agent 工作台" in workbench_response.text
+        assert "层级编排" in workbench_response.text
+        assert "loadTaskHierarchy" in workbench_response.text
 
         assert client.get("/api/v1/profiles?matter_type=民事合同").status_code == 200
         assert client.get("/api/v1/profiles/profile_1").status_code == 200

@@ -29,6 +29,18 @@ import json
 import sqlite3
 from pathlib import Path
 
+from law_agent.storage_sqlmodel import (
+    SQLMODEL_AVAILABLE,
+    AuditLogRecord,
+    ExportLogRecord,
+    ExternalActionLogRecord,
+    create_sqlite_engine,
+    create_storage_tables,
+)
+
+if SQLMODEL_AVAILABLE:  # pragma: no cover - covered by adapter tests when installed
+    from sqlmodel import Session, select
+
 
 class LogLevel(Enum):
     """日志级别"""
@@ -76,10 +88,19 @@ class AuditLogger:
     支持查询、导出和合规审计
     """
     
-    def __init__(self, db_path: str = "data/audit.db"):
+    def __init__(self, db_path: str = "data/audit.db", use_sqlmodel: bool = False):
         self.db_path = db_path
         self._memory_conn = None
-        self._init_database()
+        self._use_sqlmodel = use_sqlmodel and SQLMODEL_AVAILABLE
+        self._engine = None
+        if self._use_sqlmodel:
+            self._engine = create_sqlite_engine(db_path)
+            create_storage_tables(
+                self._engine,
+                [AuditLogRecord, ExportLogRecord, ExternalActionLogRecord],
+            )
+        else:
+            self._init_database()
 
     def _connect(self):
         if self.db_path == ":memory:":
@@ -91,6 +112,34 @@ class AuditLogger:
     def _close(self, conn):
         if self.db_path != ":memory:":
             conn.close()
+
+    def _audit_record_to_log(self, record) -> AuditLog:
+        return AuditLog(
+            task_id=record.task_id,
+            session_id=record.session_id or "",
+            trace_id=record.trace_id,
+            user_id=record.user_id or "",
+            intent=record.intent,
+            input_summary=record.input_summary or "",
+            output_summary=record.output_summary or "",
+            tools_used=record.tools_used or "",
+            risk_level=record.risk_level or "",
+            confirmed=bool(record.confirmed),
+            exported=bool(record.exported),
+            log_level=record.log_level or LogLevel.INFO.value,
+            error_message=record.error_message,
+            timestamp=record.timestamp,
+        )
+
+    def _audit_time_value(self, value):
+        if not value:
+            return value
+        return value.isoformat() if hasattr(value, "isoformat") else value
+
+    def _get_audit_record(self, session, trace_id: str):
+        return session.exec(
+            select(AuditLogRecord).where(AuditLogRecord.trace_id == trace_id)
+        ).first()
     
     def _init_database(self):
         """初始化数据库"""
@@ -186,6 +235,34 @@ class AuditLogger:
         Args:
             audit_log: 审计日志条目
         """
+        if self._use_sqlmodel:
+            timestamp = self._audit_time_value(audit_log.timestamp)
+            with Session(self._engine) as session:
+                record = self._get_audit_record(session, audit_log.trace_id)
+                if record:
+                    record.confirmed = 1 if audit_log.confirmed else 0
+                    record.exported = 1 if audit_log.exported else 0
+                else:
+                    record = AuditLogRecord(
+                        task_id=audit_log.task_id,
+                        session_id=audit_log.session_id,
+                        trace_id=audit_log.trace_id,
+                        user_id=audit_log.user_id,
+                        intent=audit_log.intent,
+                        input_summary=audit_log.input_summary,
+                        output_summary=audit_log.output_summary,
+                        tools_used=audit_log.tools_used,
+                        risk_level=audit_log.risk_level,
+                        confirmed=1 if audit_log.confirmed else 0,
+                        exported=1 if audit_log.exported else 0,
+                        log_level=audit_log.log_level,
+                        error_message=audit_log.error_message,
+                        timestamp=timestamp,
+                    )
+                    session.add(record)
+                session.commit()
+            return
+
         conn = self._connect()
         cursor = conn.cursor()
         timestamp = (
@@ -257,6 +334,24 @@ class AuditLogger:
             export_format: 导出格式
             confirmed: 是否已确认
         """
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = ExportLogRecord(
+                    task_id=task_id,
+                    trace_id=trace_id,
+                    user_id=user_id,
+                    export_type=export_type,
+                    export_format=export_format,
+                    confirmed=1 if confirmed else 0,
+                    timestamp=datetime.now().isoformat(timespec="seconds"),
+                )
+                session.add(record)
+                audit_record = self._get_audit_record(session, trace_id)
+                if audit_record:
+                    audit_record.exported = 1
+                session.commit()
+            return
+
         conn = self._connect()
         cursor = conn.cursor()
         
@@ -304,6 +399,53 @@ class AuditLogger:
         """记录导出或对外发送动作，并把主审计日志标记为已发生对外动作。"""
         profile_ids = profile_record_ids or []
         timestamp = datetime.now().isoformat(timespec="seconds")
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = ExternalActionLogRecord(
+                    task_id=task_id,
+                    trace_id=trace_id,
+                    user_id=user_id,
+                    actor_id=actor_id,
+                    action_type=action_type,
+                    export_format=export_format,
+                    destination=destination,
+                    risk_level=risk_level,
+                    review_status=review_status,
+                    confirmed=1 if confirmed else 0,
+                    reviewer_id=reviewer_id,
+                    reviewed_at=reviewed_at,
+                    original_output=original_output,
+                    final_output=final_output,
+                    profile_record_ids=",".join(profile_ids),
+                    timestamp=timestamp,
+                )
+                session.add(record)
+                audit_record = self._get_audit_record(session, trace_id)
+                if audit_record:
+                    audit_record.exported = 1
+                session.commit()
+                session.refresh(record)
+                action_id = record.id
+            return {
+                "id": action_id,
+                "task_id": task_id,
+                "trace_id": trace_id,
+                "user_id": user_id,
+                "actor_id": actor_id,
+                "action_type": action_type,
+                "export_format": export_format,
+                "destination": destination,
+                "risk_level": risk_level,
+                "review_status": review_status,
+                "confirmed": confirmed,
+                "reviewer_id": reviewer_id,
+                "reviewed_at": reviewed_at,
+                "original_output": original_output,
+                "final_output": final_output,
+                "profile_record_ids": profile_ids,
+                "timestamp": timestamp,
+            }
+
         conn = self._connect()
         cursor = conn.cursor()
 
@@ -366,6 +508,14 @@ class AuditLogger:
 
     async def set_confirmation(self, trace_id: str, confirmed: bool):
         """更新审计日志中的人工确认标记。"""
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = self._get_audit_record(session, trace_id)
+                if record:
+                    record.confirmed = 1 if confirmed else 0
+                    session.commit()
+            return
+
         conn = self._connect()
         cursor = conn.cursor()
         try:
@@ -379,6 +529,11 @@ class AuditLogger:
 
     async def get_by_trace_id(self, trace_id: str) -> Optional[AuditLog]:
         """按 trace_id 查询单条主审计日志。"""
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = self._get_audit_record(session, trace_id)
+                return self._audit_record_to_log(record) if record else None
+
         conn = self._connect()
         cursor = conn.cursor()
         try:
@@ -404,6 +559,48 @@ class AuditLogger:
         limit: int = 100,
     ) -> List[dict]:
         """查询导出和对外发送审计明细。"""
+        if self._use_sqlmodel:
+            statement = select(ExternalActionLogRecord)
+            if trace_id:
+                statement = statement.where(ExternalActionLogRecord.trace_id == trace_id)
+            if user_id:
+                statement = statement.where(ExternalActionLogRecord.user_id == user_id)
+            if action_type:
+                statement = statement.where(ExternalActionLogRecord.action_type == action_type)
+            statement = statement.order_by(ExternalActionLogRecord.timestamp.desc()).limit(limit)
+
+            with Session(self._engine) as session:
+                records = session.exec(statement).all()
+
+            actions = []
+            for record in records:
+                actions.append(
+                    {
+                        "id": record.id,
+                        "task_id": record.task_id,
+                        "trace_id": record.trace_id,
+                        "user_id": record.user_id,
+                        "actor_id": record.actor_id,
+                        "action_type": record.action_type,
+                        "export_format": record.export_format,
+                        "destination": record.destination,
+                        "risk_level": record.risk_level,
+                        "review_status": record.review_status,
+                        "confirmed": bool(record.confirmed),
+                        "reviewer_id": record.reviewer_id,
+                        "reviewed_at": record.reviewed_at,
+                        "original_output": record.original_output,
+                        "final_output": record.final_output,
+                        "profile_record_ids": (
+                            record.profile_record_ids.split(",")
+                            if record.profile_record_ids
+                            else []
+                        ),
+                        "timestamp": record.timestamp,
+                    }
+                )
+            return actions
+
         conn = self._connect()
         cursor = conn.cursor()
 
@@ -483,6 +680,27 @@ class AuditLogger:
         Returns:
             List[AuditLog]: 审计日志列表
         """
+        if self._use_sqlmodel:
+            statement = select(AuditLogRecord)
+            if user_id:
+                statement = statement.where(AuditLogRecord.user_id == user_id)
+            if intent:
+                statement = statement.where(AuditLogRecord.intent == intent)
+            if risk_level:
+                statement = statement.where(AuditLogRecord.risk_level == risk_level)
+            if start_time:
+                statement = statement.where(
+                    AuditLogRecord.timestamp >= self._audit_time_value(start_time)
+                )
+            if end_time:
+                statement = statement.where(
+                    AuditLogRecord.timestamp <= self._audit_time_value(end_time)
+                )
+            statement = statement.order_by(AuditLogRecord.timestamp.desc()).limit(limit)
+            with Session(self._engine) as session:
+                records = session.exec(statement).all()
+            return [self._audit_record_to_log(record) for record in records]
+
         conn = self._connect()
         cursor = conn.cursor()
         
@@ -554,6 +772,39 @@ class AuditLogger:
         Returns:
             dict: 统计数据
         """
+        if self._use_sqlmodel:
+            statement = select(AuditLogRecord)
+            if start_time:
+                statement = statement.where(
+                    AuditLogRecord.timestamp >= self._audit_time_value(start_time)
+                )
+            if end_time:
+                statement = statement.where(
+                    AuditLogRecord.timestamp <= self._audit_time_value(end_time)
+                )
+
+            with Session(self._engine) as session:
+                records = session.exec(statement).all()
+
+            total_tasks = len(records)
+            intent_stats = {}
+            risk_stats = {}
+            exported = 0
+            confirmed = 0
+            for record in records:
+                intent_stats[record.intent] = intent_stats.get(record.intent, 0) + 1
+                risk_stats[record.risk_level] = risk_stats.get(record.risk_level, 0) + 1
+                exported += 1 if record.exported else 0
+                confirmed += 1 if record.confirmed else 0
+
+            return {
+                "total_tasks": total_tasks,
+                "intent_stats": intent_stats,
+                "risk_stats": risk_stats,
+                "export_rate": exported / total_tasks if total_tasks else 0,
+                "confirm_rate": confirmed / total_tasks if total_tasks else 0,
+            }
+
         conn = self._connect()
         cursor = conn.cursor()
         

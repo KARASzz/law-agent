@@ -12,6 +12,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from law_agent.storage_sqlmodel import (
+    SQLMODEL_AVAILABLE,
+    ReviewTaskRecord,
+    create_sqlite_engine,
+    create_storage_tables,
+)
+
+if SQLMODEL_AVAILABLE:  # pragma: no cover - covered by adapter tests when installed
+    from sqlmodel import Session, select
+
 
 @dataclass
 class ReviewTask:
@@ -56,10 +66,18 @@ class ReviewTask:
 class ReviewTaskStore:
     """SQLite 版人工审阅任务库。"""
 
-    def __init__(self, db_path: str = "data/tasks.db"):
+    def __init__(self, db_path: str = "data/tasks.db", use_sqlmodel: bool = False):
         self.db_path = db_path
         self._memory_conn = None
-        self._init_database()
+        self._use_sqlmodel = use_sqlmodel and SQLMODEL_AVAILABLE
+        self._engine = None
+        if self._use_sqlmodel:
+            self._engine = create_sqlite_engine(db_path)
+            create_storage_tables(self._engine, [ReviewTaskRecord])
+            if db_path != ":memory:":
+                self._ensure_legacy_review_columns()
+        else:
+            self._init_database()
 
     def _connect(self):
         if self.db_path == ":memory:":
@@ -74,6 +92,36 @@ class ReviewTaskStore:
     def _close(self, conn):
         if self.db_path != ":memory:":
             conn.close()
+
+    def _record_to_task(self, record) -> ReviewTask:
+        return ReviewTask(
+            trace_id=record.trace_id,
+            task_id=record.task_id,
+            session_id=record.session_id or "",
+            user_id=record.user_id or "",
+            intent=record.intent,
+            risk_level=record.risk_level,
+            review_status=record.review_status,
+            original_output=record.original_output,
+            user_input=record.user_input,
+            task_title=record.task_title,
+            reviewed_output=record.reviewed_output,
+            reviewer_id=record.reviewer_id,
+            reviewed_at=record.reviewed_at,
+            rejection_reason=record.rejection_reason,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+        )
+
+    def _ensure_legacy_review_columns(self) -> None:
+        conn = self._connect()
+        try:
+            cursor = conn.cursor()
+            self._ensure_column(cursor, "review_tasks", "user_input", "TEXT")
+            self._ensure_column(cursor, "review_tasks", "task_title", "TEXT")
+            conn.commit()
+        finally:
+            self._close(conn)
 
     def _init_database(self):
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -122,6 +170,36 @@ class ReviewTaskStore:
         task_title: str = "",
     ) -> ReviewTask:
         now = datetime.now().isoformat(timespec="seconds")
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = session.get(ReviewTaskRecord, trace_id)
+                if record:
+                    record.intent = intent
+                    record.risk_level = risk_level
+                    record.review_status = "pending_review"
+                    record.original_output = original_output
+                    record.user_input = user_input
+                    record.task_title = task_title
+                    record.updated_at = now
+                else:
+                    record = ReviewTaskRecord(
+                        trace_id=trace_id,
+                        task_id=task_id,
+                        session_id=session_id,
+                        user_id=user_id,
+                        intent=intent,
+                        risk_level=risk_level,
+                        review_status="pending_review",
+                        original_output=original_output,
+                        user_input=user_input,
+                        task_title=task_title,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    session.add(record)
+                session.commit()
+            return self.get(trace_id)
+
         conn = self._connect()
         try:
             conn.execute(
@@ -167,6 +245,19 @@ class ReviewTaskStore:
         task_title: Optional[str] = None,
     ) -> Optional[ReviewTask]:
         """补充审阅任务展示元数据。"""
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = session.get(ReviewTaskRecord, trace_id)
+                if not record:
+                    return None
+                if user_input is not None:
+                    record.user_input = user_input
+                if task_title is not None:
+                    record.task_title = task_title
+                record.updated_at = datetime.now().isoformat(timespec="seconds")
+                session.commit()
+            return self.get(trace_id)
+
         updates = []
         params = []
         if user_input is not None:
@@ -194,6 +285,11 @@ class ReviewTaskStore:
         return self.get(trace_id)
 
     def get(self, trace_id: str) -> Optional[ReviewTask]:
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = session.get(ReviewTaskRecord, trace_id)
+                return self._record_to_task(record) if record else None
+
         conn = self._connect()
         try:
             row = conn.execute(
@@ -212,6 +308,19 @@ class ReviewTaskStore:
         limit: int = 100,
     ) -> list[ReviewTask]:
         """按状态、用户或风险等级查询审阅任务。"""
+        if self._use_sqlmodel:
+            statement = select(ReviewTaskRecord)
+            if review_status:
+                statement = statement.where(ReviewTaskRecord.review_status == review_status)
+            if user_id:
+                statement = statement.where(ReviewTaskRecord.user_id == user_id)
+            if risk_level:
+                statement = statement.where(ReviewTaskRecord.risk_level == risk_level)
+            statement = statement.order_by(ReviewTaskRecord.updated_at.desc()).limit(limit)
+            with Session(self._engine) as session:
+                records = session.exec(statement).all()
+            return [self._record_to_task(record) for record in records]
+
         conditions = []
         params = []
 
@@ -256,6 +365,20 @@ class ReviewTaskStore:
 
         now = datetime.now().isoformat(timespec="seconds")
         final_output = reviewed_output if reviewed_output is not None else task.original_output
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = session.get(ReviewTaskRecord, trace_id)
+                if not record:
+                    return None
+                record.review_status = "confirmed"
+                record.reviewed_output = final_output
+                record.reviewer_id = reviewer_id
+                record.reviewed_at = now
+                record.rejection_reason = None
+                record.updated_at = now
+                session.commit()
+            return self.get(trace_id)
+
         conn = self._connect()
         try:
             conn.execute(
@@ -283,6 +406,19 @@ class ReviewTaskStore:
             return None
 
         now = datetime.now().isoformat(timespec="seconds")
+        if self._use_sqlmodel:
+            with Session(self._engine) as session:
+                record = session.get(ReviewTaskRecord, trace_id)
+                if not record:
+                    return None
+                record.review_status = "rejected"
+                record.reviewer_id = reviewer_id
+                record.reviewed_at = now
+                record.rejection_reason = rejection_reason
+                record.updated_at = now
+                session.commit()
+            return self.get(trace_id)
+
         conn = self._connect()
         try:
             conn.execute(

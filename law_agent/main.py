@@ -30,8 +30,11 @@ from law_agent.intent import IntentRecognizer
 from law_agent.risk import RiskLabeler
 from law_agent.audit import AuditLog, AuditLogger
 from law_agent.client_profiles import ClientProfileStore
+from law_agent.hierarchy import OrchestrationStore, RootOrchestrator
 from law_agent.llm import create_llm_client
+from law_agent.logging_config import configure_logging
 from law_agent.review import ReviewTaskStore
+from law_agent.storage_sqlmodel import SQLMODEL_AVAILABLE
 from config.settings import get_config
 
 
@@ -57,11 +60,21 @@ class LawAgentApp:
     def __init__(self):
         self.config = get_config()
         self.orchestrator: LawOrchestrator = None
-        self.audit_logger = AuditLogger(self.config.database.audit_db_path)
+        self.audit_logger = AuditLogger(
+            self.config.database.audit_db_path,
+            use_sqlmodel=SQLMODEL_AVAILABLE,
+        )
         self.profile_store = ClientProfileStore(self.config.database.client_profile_db_path)
-        self.review_store = ReviewTaskStore(self.config.database.task_db_path)
+        self.review_store = ReviewTaskStore(
+            self.config.database.task_db_path,
+            use_sqlmodel=SQLMODEL_AVAILABLE,
+        )
+        self.orchestration_store = OrchestrationStore(
+            self.config.database.orchestration_db_path
+        )
         self.llm_client = None
         self.external_research_tool = None
+        self.root_orchestrator: RootOrchestrator = None
         self._initialized = False
     
     async def initialize(self):
@@ -69,6 +82,7 @@ class LawAgentApp:
         if self._initialized:
             return
         
+        configure_logging(self.config)
         print("🚀 初始化律师智能体...")
         
         # 初始化RAG客户端
@@ -130,6 +144,10 @@ class LawAgentApp:
             document_agent=document_agent,
             client_profile_store=self.profile_store,
         )
+        self.root_orchestrator = RootOrchestrator(
+            legacy_orchestrator=self.orchestrator,
+            store=self.orchestration_store,
+        )
         
         self._initialized = True
         print("✅ 律师智能体初始化完成")
@@ -184,8 +202,9 @@ class LawAgentApp:
         """
         if not self._initialized:
             await self.initialize()
-        
-        result = await self.orchestrator.process(
+
+        processor = getattr(self, "root_orchestrator", None) or self.orchestrator
+        result = await processor.process(
             user_input=user_input,
             session_id=session_id,
             user_id=user_id,
@@ -234,6 +253,50 @@ class LawAgentApp:
             "llm_fallback_models": llm_runtime["fallback_models"],
             "processing_time": result.processing_time,
             "error": result.error,
+        }
+
+    async def create_task(
+        self,
+        user_input: str,
+        session_id: str = "",
+        user_id: str = "",
+    ) -> dict:
+        """创建层级编排任务，并返回兼容处理结果。"""
+        result = await self.process(
+            user_input=user_input,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        return {
+            "task": self.get_task(result["task_id"]),
+            "result": result,
+        }
+
+    def get_task(self, task_id: str) -> dict | None:
+        """查询层级编排任务详情。"""
+        return self.orchestration_store.get_task_payload(task_id)
+
+    def get_task_steps(self, task_id: str) -> list[dict]:
+        """查询层级编排步骤。"""
+        return self.orchestration_store.list_steps(task_id)
+
+    async def save_upload(
+        self,
+        upload_file,
+        trace_id: str = "",
+    ) -> dict:
+        """保存上传文件，供后续合同/证据/画像导入流程使用。"""
+        safe_name = Path(upload_file.filename or "upload.bin").name
+        folder = Path("data/uploads") / (trace_id or "unassigned")
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / safe_name
+        content = await upload_file.read()
+        target.write_bytes(content)
+        return {
+            "filename": safe_name,
+            "path": str(target),
+            "size": len(content),
+            "trace_id": trace_id,
         }
 
     def _build_llm_runtime(self, tools_used: list[str]) -> dict:
@@ -631,12 +694,19 @@ def _extract_profile_record_ids(tools_used: str) -> list[str]:
 
 def create_api_app(law_app: LawAgentApp = None):
     """创建 FastAPI 应用，便于服务启动和测试复用。"""
-    from fastapi import FastAPI, HTTPException, Query
+    from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
     from fastapi.responses import HTMLResponse
     from pydantic import BaseModel, Field
 
     app = FastAPI(title="律师智能体 API")
     law_app = law_app or LawAgentApp()
+    try:
+        from fastapi.templating import Jinja2Templates
+
+        templates_dir = Path(__file__).parent / "templates"
+        app.state.templates = Jinja2Templates(directory=str(templates_dir))
+    except Exception:
+        app.state.templates = None
 
     class ProcessRequest(BaseModel):
         user_input: str
@@ -690,6 +760,39 @@ def create_api_app(law_app: LawAgentApp = None):
             user_id=request.user_id,
         )
         return result
+
+    @app.post("/api/v1/tasks")
+    async def create_task(request: ProcessRequest):
+        """创建 Hierarchical Orchestrator 任务。"""
+        return await law_app.create_task(
+            user_input=request.user_input,
+            session_id=request.session_id,
+            user_id=request.user_id,
+        )
+
+    @app.get("/api/v1/tasks/{task_id}")
+    async def get_task(task_id: str):
+        """查询 Hierarchical Orchestrator 任务详情。"""
+        task = law_app.get_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        return task
+
+    @app.get("/api/v1/tasks/{task_id}/steps")
+    async def get_task_steps(task_id: str):
+        """查询 Hierarchical Orchestrator 任务步骤。"""
+        task = law_app.get_task(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        return {"items": law_app.get_task_steps(task_id)}
+
+    @app.post("/api/v1/files/upload")
+    async def upload_file(
+        file: UploadFile = File(...),
+        trace_id: str = Form(default=""),
+    ):
+        """上传合同、证据或画像文件，供后续任务引用。"""
+        return await law_app.save_upload(file, trace_id=trace_id)
 
     @app.post("/api/v1/research/web")
     async def research_web(request: ResearchWebRequest):

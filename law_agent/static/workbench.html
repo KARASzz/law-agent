@@ -122,6 +122,11 @@
       border-color: #d8d2ea;
     }
 
+    .panel.orchestration-panel {
+      background: #ffffff;
+      border-color: #b7cad4;
+    }
+
     .panel.review-panel {
       background: var(--soft-amber);
       border-color: #ead8ad;
@@ -424,6 +429,16 @@
       background: var(--red);
     }
 
+    .badge.completed,
+    .badge.ok {
+      background: var(--green);
+    }
+
+    .badge.running,
+    .badge.pending {
+      background: var(--blue);
+    }
+
     .output {
       min-height: 260px;
       max-height: 520px;
@@ -506,6 +521,78 @@
       line-height: 1.2;
       padding: 5px 8px;
       overflow-wrap: anywhere;
+    }
+
+    .orchestration {
+      display: grid;
+      gap: 8px;
+    }
+
+    .task-note {
+      border: 1px solid #cfdbdf;
+      border-radius: 8px;
+      background: #f8fafb;
+      padding: 9px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .step-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .step-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f9fbfb;
+      padding: 10px;
+    }
+
+    .step-main,
+    .tool-call {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .step-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+
+    .step-meta,
+    .step-error,
+    .tool-error {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .step-error,
+    .tool-error {
+      color: var(--red);
+    }
+
+    .tool-call-list {
+      display: grid;
+      gap: 5px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
+    }
+
+    .tool-call {
+      border-radius: 6px;
+      background: #ffffff;
+      padding: 6px 8px;
+      font-size: 12px;
     }
 
     .empty {
@@ -707,6 +794,11 @@
             <div class="chips" id="toolChips"></div>
           </div>
 
+          <div class="panel orchestration-panel">
+            <h2>层级编排</h2>
+            <div class="orchestration" id="orchestrationInfo"></div>
+          </div>
+
           <div class="panel review-panel">
             <h2>人工审阅</h2>
             <label for="reviewerId">reviewer_id</label>
@@ -759,6 +851,7 @@
     const state = {
       current: null,
       reviewTask: null,
+      taskHierarchy: null,
       // MVP 当前按单用户开发；未来接入多用户时，只需要把这里替换为登录态/用户列表选择结果。
       activeUser: {
         label: "开发用户",
@@ -929,6 +1022,7 @@
         llm_fallback_models: [],
       };
       state.reviewTask = null;
+      state.taskHierarchy = null;
       renderCurrent();
       setStatus("已执行指令", "done");
     }
@@ -970,6 +1064,7 @@
         llm_fallback_models: [],
       };
       state.reviewTask = null;
+      state.taskHierarchy = null;
       renderCurrent();
       setStatus("联网研究完成", "done");
     }
@@ -1042,10 +1137,12 @@
     function clearWorkbenchCache() {
       state.current = null;
       state.reviewTask = null;
+      state.taskHierarchy = null;
       $("reviewedOutput").value = "";
       $("profileStrategy").innerHTML = "<div class=\"empty\">暂无命中画像</div>";
       $("runtimeInfo").innerHTML = "<div class=\"empty\">暂无运行信息</div>";
       $("toolChips").innerHTML = "";
+      $("orchestrationInfo").innerHTML = "<div class=\"empty\">暂无层级任务</div>";
       $("externalActionList").innerHTML = "<div class=\"empty\">暂无记录</div>";
       renderCurrent();
     }
@@ -1111,6 +1208,19 @@
       return data;
     }
 
+    async function loadTaskHierarchy(taskId) {
+      state.taskHierarchy = null;
+      renderOrchestration(state.taskHierarchy);
+      if (!taskId || taskId === "local-command" || taskId === "web-research") return;
+
+      try {
+        state.taskHierarchy = await api(`/api/v1/tasks/${encodeURIComponent(taskId)}`);
+      } catch (error) {
+        state.taskHierarchy = {load_error: error.message, steps: [], tool_calls: []};
+      }
+      renderOrchestration(state.taskHierarchy);
+    }
+
     function externalAllowed() {
       if (!state.current) return false;
       if (state.current.risk_level === "low") return true;
@@ -1139,6 +1249,7 @@
 
       renderProfile(current ? current.profile_strategy : null);
       renderRuntime(current, runtime);
+      renderOrchestration(state.taskHierarchy);
 
       const hasTrace = Boolean(current && current.trace_id);
       const needsReview = current && current.requires_human_review;
@@ -1288,6 +1399,77 @@
         : "<div class=\"empty\">后端未返回工具调用</div>";
     }
 
+    function renderOrchestration(payload) {
+      const target = $("orchestrationInfo");
+      const taskId = state.current ? state.current.task_id : "";
+      if (!taskId || taskId === "local-command" || taskId === "web-research") {
+        target.innerHTML = "<div class=\"empty\">暂无层级任务</div>";
+        return;
+      }
+
+      if (!payload) {
+        target.innerHTML = "<div class=\"empty\">层级任务尚未加载</div>";
+        return;
+      }
+
+      if (payload.load_error) {
+        target.innerHTML = `<div class="task-note">加载失败：${escapeHtml(payload.load_error)}</div>`;
+        return;
+      }
+
+      const steps = payload.steps || [];
+      const calls = payload.tool_calls || [];
+      const taskError = payload.error ? `<div class="step-error">${escapeHtml(payload.error)}</div>` : "";
+      const summary = `
+        <div class="task-note">
+          task_id: ${escapeHtml(payload.task_id || state.current.task_id)}
+          · status: ${escapeHtml(payload.status || "-")}
+          · intent: ${escapeHtml(payload.intent || "-")}
+          ${taskError}
+        </div>
+      `;
+
+      const stepHtml = steps.length ? steps.map((step) => {
+        const stepCalls = calls.filter((call) => call.step_id === step.step_id);
+        const callHtml = stepCalls.length ? `
+          <div class="tool-call-list">
+            ${stepCalls.map((call) => `
+              <div class="tool-call">
+                <span>${escapeHtml(call.provider || "-")}.${escapeHtml(call.tool_name || "-")}</span>
+                <span class="badge ${escapeHtml(call.status || "")}">${escapeHtml(call.status || "-")}</span>
+              </div>
+              ${call.error ? `<div class="tool-error">${escapeHtml(call.error)}</div>` : ""}
+            `).join("")}
+          </div>
+        ` : "";
+        return `
+          <div class="step-item">
+            <div class="step-main">
+              <div class="step-name">${escapeHtml(step.sequence)}. ${escapeHtml(step.name || "-")}</div>
+              <span class="badge ${escapeHtml(step.status || "")}">${escapeHtml(step.status || "-")}</span>
+            </div>
+            <div class="step-meta">${escapeHtml(step.role || "-")} · ${escapeHtml(step.completed_at || step.started_at || "")}</div>
+            ${step.error ? `<div class="step-error">${escapeHtml(step.error)}</div>` : ""}
+            ${callHtml}
+          </div>
+        `;
+      }).join("") : "<div class=\"empty\">暂无步骤记录</div>";
+
+      const orphanCalls = calls.filter((call) => !steps.some((step) => step.step_id === call.step_id));
+      const orphanHtml = orphanCalls.length ? `
+        <div class="tool-call-list">
+          ${orphanCalls.map((call) => `
+            <div class="tool-call">
+              <span>${escapeHtml(call.provider || "-")}.${escapeHtml(call.tool_name || "-")}</span>
+              <span class="badge ${escapeHtml(call.status || "")}">${escapeHtml(call.status || "-")}</span>
+            </div>
+          `).join("")}
+        </div>
+      ` : "";
+
+      target.innerHTML = `${summary}<div class="step-list">${stepHtml}</div>${orphanHtml}`;
+    }
+
     function renderTasks(items) {
       $("taskList").innerHTML = items.length ? items.map((task) => `
         <div class="item" data-trace="${escapeHtml(task.trace_id)}">
@@ -1327,7 +1509,9 @@
         profile_strategy: {},
         review_status: task.review_status
       };
+      state.taskHierarchy = null;
       renderCurrent();
+      loadTaskHierarchy(task.task_id).catch((error) => setStatus(error.message, "error"));
       loadAudit();
       loadExternalActions();
     }
@@ -1360,7 +1544,9 @@
       });
       state.current = data;
       state.reviewTask = data.review_task;
+      state.taskHierarchy = null;
       renderCurrent();
+      await loadTaskHierarchy(data.task_id);
       await refreshAll();
       setStatus("已完成", "done");
     }
